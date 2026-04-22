@@ -299,8 +299,9 @@ async def chat_with_tools(
     )
 
     records: list[ToolCallRecord] = []
-    tool_messages_this_turn: list[dict] = []
-    final_assistant_msg: dict = {}
+    # Collects every message added this turn in OpenAI-valid order:
+    # [assistant+tool_calls, tool_result, ..., assistant_final]
+    turn_additions: list[dict] = []
 
     for _ in range(5):
         kwargs: dict = {"model": "gpt-4o", "messages": messages}
@@ -312,10 +313,9 @@ async def chat_with_tools(
         msg = resp.choices[0].message
 
         if not msg.tool_calls:
-            final_assistant_msg = {"role": "assistant", "content": msg.content or ""}
-            context_layer.save_turn(
-                session_id, req.message, final_assistant_msg, tool_messages_this_turn
-            )
+            final_msg = {"role": "assistant", "content": msg.content or ""}
+            turn_additions.append(final_msg)
+            context_layer.save_turn(session_id, req.message, turn_additions)
             return ChatResponse(
                 response=msg.content or "",
                 tool_calls=records,
@@ -323,8 +323,10 @@ async def chat_with_tools(
                 session_id=session_id,
             )
 
+        # Assistant message WITH tool_calls — must be saved before tool results
         assistant_dict = msg.model_dump(exclude_unset=True)
         messages.append(assistant_dict)
+        turn_additions.append(assistant_dict)
 
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments)
@@ -359,13 +361,12 @@ async def chat_with_tools(
             ))
             tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result_text}
             messages.append(tool_msg)
-            tool_messages_this_turn.append(tool_msg)
+            turn_additions.append(tool_msg)
 
     final = await client.chat.completions.create(model="gpt-4o", messages=messages)
-    final_assistant_msg = {"role": "assistant", "content": final.choices[0].message.content or ""}
-    context_layer.save_turn(
-        session_id, req.message, final_assistant_msg, tool_messages_this_turn
-    )
+    final_msg = {"role": "assistant", "content": final.choices[0].message.content or ""}
+    turn_additions.append(final_msg)
+    context_layer.save_turn(session_id, req.message, turn_additions)
     return ChatResponse(
         response=final.choices[0].message.content or "",
         tool_calls=records,

@@ -73,19 +73,19 @@ class ContextLayer:
         self,
         session_id: str,
         user_message: str,
-        assistant_msg: dict,
-        tool_messages: list[dict],
+        turn_messages: list[dict],
     ):
         """
         Persist the completed turn into session history so the next call sees it.
-        Call this after the agentic loop finishes.
+        turn_messages must be the ordered slice of everything added after the user
+        message: [assistant+tool_calls?, tool_result?, ..., assistant_final].
+        This preserves the exact sequence OpenAI requires.
         """
         session = self._sessions.get(session_id)
         if not session:
             return
         session.history.append({"role": "user", "content": user_message})
-        session.history.append(assistant_msg)
-        session.history.extend(tool_messages)
+        session.history.extend(turn_messages)
         session.touch()
 
     def clear_session(self, session_id: str):
