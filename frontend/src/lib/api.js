@@ -77,6 +77,6 @@ export const chatgptApi = {
   connect:     (id)    => http.post(`/api/chatgpt/connect/${id}`).then((r) => r.data),
   disconnect:  (id)    => http.delete(`/api/chatgpt/disconnect/${id}`).then((r) => r.data),
   getTools:    (id)    => http.get(`/api/chatgpt/tools/${id}`).then((r) => r.data),
-  chat:        (message, api_ids = []) =>
-    http.post("/api/chatgpt/chat", { message, api_ids }).then((r) => r.data),
+  chat:        (message, api_ids = [], session_id = null) =>
+    http.post("/api/chatgpt/chat", { message, api_ids, session_id }).then((r) => r.data),
 };

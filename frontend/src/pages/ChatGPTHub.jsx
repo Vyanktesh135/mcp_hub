@@ -217,9 +217,10 @@ function ApiRow({ api, toggling, onToggle, t }) {
    Chat Panel
 ═══════════════════════════════════════════════════════════════════════════ */
 function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onToggleExpand, t }) {
-  const [messages, setMessages] = useState([]);
-  const [input,    setInput]    = useState("");
-  const [sending,  setSending]  = useState(false);
+  const [messages,   setMessages]   = useState([]);
+  const [input,      setInput]      = useState("");
+  const [sending,    setSending]    = useState(false);
+  const [sessionId,  setSessionId]  = useState(null);
   const bottomRef  = useRef(null);
   const inputRef   = useRef(null);
 
@@ -248,7 +249,9 @@ function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onTogg
     }
 
     try {
-      const res = await chatgptApi.chat(text);
+      const res = await chatgptApi.chat(text, [], sessionId);
+
+      if (res.session_id) setSessionId(res.session_id);
 
       if (res.status === "NO_TOOLS_CONNECTED") {
         setMessages(m => [...m, { role: "system", type: "no_tools", ts: now() }]);
