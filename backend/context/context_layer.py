@@ -150,7 +150,15 @@ class ContextLayer:
             "- If a required parameter is missing, ask the user for it — do not guess.\n"
             "- If a tool call fails, explain the error clearly and suggest next steps.\n"
             "- Be concise. Avoid repeating raw JSON to the user — summarise the result.\n"
-            "- If the question cannot be answered with the connected APIs, say so directly."
+            "- If the question cannot be answered with the connected APIs, say so directly.\n"
+            "- IMPORTANT: When you previously asked the user for parameters and they are now "
+            "providing them, call the SAME tool you identified before — do not switch to a "
+            "different tool (e.g. do not call a GET/list tool when you were about to call a "
+            "POST/create tool). Re-read the conversation history to confirm which tool you "
+            "committed to before asking for parameters.\n"
+            "- IMPORTANT: Match the user's intent precisely. If the user says 'create', call "
+            "the create/POST tool. If the user says 'list' or 'get', call the list/GET tool. "
+            "Never substitute a read operation for a write operation or vice versa."
         )
 
 
