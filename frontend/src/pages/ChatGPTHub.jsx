@@ -15,12 +15,13 @@ const CHAT_HEIGHT_EXPANDED = "calc(100vh - 84px)";
 
 export default function ChatGPTHub() {
   const { t } = useLanguage();
-  const [stats,       setStats]       = useState(null);
-  const [apis,        setApis]        = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [toggling,    setToggling]    = useState(null);
-  const [search,      setSearch]      = useState("");
-  const [expanded,    setExpanded]    = useState(false);
+  const [stats,         setStats]         = useState(null);
+  const [apis,          setApis]          = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [toggling,      setToggling]      = useState(null);
+  const [search,        setSearch]        = useState("");
+  const [expanded,      setExpanded]      = useState(false);
+  const [activeSession, setActiveSession] = useState(null);
 
   useEffect(() => {
     Promise.all([chatgptApi.getStats(), chatgptApi.getRegistry()])
@@ -31,8 +32,12 @@ export default function ChatGPTHub() {
   async function toggle(api) {
     setToggling(api.id);
     try {
-      if (api.is_connected) await chatgptApi.disconnect(api.id);
-      else                  await chatgptApi.connect(api.id);
+      if (api.is_connected) {
+        await chatgptApi.disconnect(api.id);
+        setActiveSession(null); // stale tool history must not persist
+      } else {
+        await chatgptApi.connect(api.id);
+      }
       const [s, a] = await Promise.all([chatgptApi.getStats(), chatgptApi.getRegistry()]);
       setStats(s); setApis(a);
     } finally {
@@ -80,6 +85,8 @@ export default function ChatGPTHub() {
           onToggleExpand={() => setExpanded(false)}
           t={t}
           onStatsRefresh={() => chatgptApi.getStats().then(setStats)}
+          activeSession={activeSession}
+          onSessionChange={setActiveSession}
         />
       </div>
     );
@@ -152,6 +159,8 @@ export default function ChatGPTHub() {
             onToggleExpand={() => setExpanded(true)}
             t={t}
             onStatsRefresh={() => chatgptApi.getStats().then(setStats)}
+            activeSession={activeSession}
+            onSessionChange={setActiveSession}
           />
         </div>
       </div>
@@ -216,11 +225,10 @@ function ApiRow({ api, toggling, onToggle, t }) {
 /* ════════════════════════════════════════════════════════════════════════════
    Chat Panel
 ═══════════════════════════════════════════════════════════════════════════ */
-function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onToggleExpand, t }) {
-  const [messages,   setMessages]   = useState([]);
-  const [input,      setInput]      = useState("");
-  const [sending,    setSending]    = useState(false);
-  const [sessionId,  setSessionId]  = useState(null);
+function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onToggleExpand, t, activeSession, onSessionChange }) {
+  const [messages, setMessages] = useState([]);
+  const [input,    setInput]    = useState("");
+  const [sending,  setSending]  = useState(false);
   const bottomRef  = useRef(null);
   const inputRef   = useRef(null);
 
@@ -249,9 +257,9 @@ function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onTogg
     }
 
     try {
-      const res = await chatgptApi.chat(text, [], sessionId);
+      const res = await chatgptApi.chat(text, [], activeSession);
 
-      if (res.session_id) setSessionId(res.session_id);
+      if (res.session_id) onSessionChange(res.session_id);
 
       if (res.status === "NO_TOOLS_CONNECTED") {
         setMessages(m => [...m, { role: "system", type: "no_tools", ts: now() }]);
