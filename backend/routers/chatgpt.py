@@ -20,6 +20,7 @@ from schemas.chatgpt import (
 from utils.auth import get_current_user
 from models.user import User
 from context.context_layer import context_layer
+from orchestrator.tool_orchestrator import tool_orchestrator
 
 router = APIRouter(prefix="/api/chatgpt", tags=["chatgpt"])
 
@@ -165,73 +166,6 @@ def get_tools_schema(
     return {"api_id": api_id, "api_name": api.name, "tools": api_to_tools(api)}
 
 
-# ── Parameter validation ───────────────────────────────────────────────────────
-
-def _missing_required_params(ep: ApiEndpoint, arguments: dict) -> list[str]:
-    schema = ep.input_schema or {}
-    required = schema.get("required") or []
-    return [p for p in required if p not in arguments or arguments[p] is None]
-
-
-def _missing_params_message(ep: ApiEndpoint, missing: list[str]) -> str:
-    schema   = ep.input_schema or {}
-    props    = schema.get("properties") or {}
-    details  = []
-    for name in missing:
-        prop  = props.get(name, {})
-        ptype = prop.get("type", "string")
-        desc  = prop.get("description", "")
-        entry = f'"{name}" ({ptype})'
-        if desc:
-            entry += f" — {desc}"
-        details.append(entry)
-
-    return json.dumps({
-        "status":  "MISSING_REQUIRED_PARAMETERS",
-        "tool":    ep.name,
-        "missing": missing,
-        "details": details,
-        "message": (
-            f"Cannot call '{ep.name}' — the following required parameters are missing: "
-            + ", ".join(missing)
-            + ". Please ask the user to provide them before retrying."
-        ),
-    })
-
-
-# ── Execution helper ───────────────────────────────────────────────────────────
-
-async def _execute_tool(api: ApiDefinition, ep: ApiEndpoint, arguments: dict) -> tuple[str, bool]:
-    if not api.base_url:
-        return "Error: API has no base_url configured", False
-
-    url = f"{api.base_url.rstrip('/')}{ep.path}"
-    args = dict(arguments)
-
-    for param in re.findall(r"\{(\w+)\}", ep.path):
-        if param in args:
-            url = url.replace(f"{{{param}}}", str(args.pop(param)))
-
-    req_auth, extra_headers, extra_params = _build_auth(decrypt_creds(ep.auth_credentials))
-    if extra_params:
-        args.update(extra_params)
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
-            method = ep.method.upper()
-            if method == "GET":
-                resp = await client.get(url, params=args, auth=req_auth, headers=extra_headers)
-            elif method == "DELETE":
-                resp = await client.delete(url, params=args, auth=req_auth, headers=extra_headers)
-            else:
-                resp = await client.request(method, url, json=args, auth=req_auth, headers=extra_headers)
-
-        return resp.text[:2000], resp.status_code < 400
-    except Exception as exc:
-        return f"Request failed: {exc}", False
-
-
-
 def _build_auth(creds: dict | None) -> tuple:
     if not creds:
         return None, {}, {}
@@ -299,8 +233,6 @@ async def chat_with_tools(
     )
 
     records: list[ToolCallRecord] = []
-    # Collects every message added this turn in OpenAI-valid order:
-    # [assistant+tool_calls, tool_result, ..., assistant_final]
     turn_additions: list[dict] = []
 
     for _ in range(5):
@@ -310,7 +242,7 @@ async def chat_with_tools(
             kwargs["tool_choice"] = "auto"
 
         resp = await client.chat.completions.create(**kwargs)
-        msg = resp.choices[0].message
+        msg  = resp.choices[0].message
 
         if not msg.tool_calls:
             final_msg = {"role": "assistant", "content": msg.content or ""}
@@ -323,43 +255,41 @@ async def chat_with_tools(
                 session_id=session_id,
             )
 
-        # Assistant message WITH tool_calls — must be saved before tool results
+        # Save assistant message with tool_calls before results (OpenAI ordering)
         assistant_dict = msg.model_dump(exclude_unset=True)
         messages.append(assistant_dict)
         turn_additions.append(assistant_dict)
 
-        for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments)
-            api_obj, ep_obj = resolve_tool_call(tc.function.name, db)
+        # ── Orchestrator: parallel execution + retry ──────────────────────────
+        results = await tool_orchestrator.execute_all(msg.tool_calls, db)
 
-            if api_obj and ep_obj:
-                missing = _missing_required_params(ep_obj, args)
-                if missing:
-                    result_text = _missing_params_message(ep_obj, missing)
-                    success = False
-                else:
-                    result_text, success = await _execute_tool(api_obj, ep_obj, args)
+        for er in results:
+            # Persist to ToolCallLog if we resolved the endpoint
+            api_obj, ep_obj = resolve_tool_call(er.tool_name, db)
+            if api_obj:
                 db.add(ToolCallLog(
                     id=str(uuid4()),
                     api_definition_id=api_obj.id,
-                    endpoint_name=ep_obj.name or ep_obj.path,
-                    arguments=json.dumps(args),
-                    result=result_text[:1000],
-                    success=success,
+                    endpoint_name=er.endpoint,
+                    arguments=json.dumps(er.arguments),
+                    result=er.result_text[:1000],
+                    success=er.success,
                 ))
                 db.commit()
-            else:
-                result_text, success = "Tool not found", False
 
             records.append(ToolCallRecord(
-                tool_name=tc.function.name,
-                api_name=api_obj.name if api_obj else "unknown",
-                endpoint=ep_obj.name or ep_obj.path if ep_obj else tc.function.name,
-                arguments=args,
-                result=result_text,
-                success=success,
+                tool_name=er.tool_name,
+                api_name=er.api_name,
+                endpoint=er.endpoint,
+                arguments=er.arguments,
+                result=er.result_text,
+                success=er.success,
             ))
-            tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result_text}
+            tool_msg = {
+                "role": "tool",
+                "tool_call_id": er.tool_call_id,
+                "content": er.result_text,
+            }
             messages.append(tool_msg)
             turn_additions.append(tool_msg)
 
