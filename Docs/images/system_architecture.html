@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Hub — System Architecture</title>
+  <style>
+    :root {
+      --bg:      #f6f8fa;
+      --surface: #ffffff;
+      --border:  #d1d9e0;
+      --text:    #0f172a;
+      --muted:   #475569;
+      --dim:     #94a3b8;
+
+      /* Frontend – Blue */
+      --fe:          #eff6ff;
+      --fe-bd:       #3b82f6;
+      --fe-title:    #1d4ed8;
+      --fe-chip:     #dbeafe;
+      --fe-chip-bd:  #bfdbfe;
+
+      /* Backend – Emerald */
+      --be:          #f0fdf4;
+      --be-bd:       #16a34a;
+      --be-title:    #14532d;
+      --be-chip:     #dcfce7;
+      --be-chip-bd:  #bbf7d0;
+
+      /* Agent – Violet */
+      --ag:          #f5f3ff;
+      --ag-bd:       #7c3aed;
+      --ag-title:    #4c1d95;
+      --ag-chip:     #ede9fe;
+      --ag-chip-bd:  #ddd6fe;
+
+      /* Utilities – Rose */
+      --ut:          #fff1f2;
+      --ut-bd:       #e11d48;
+      --ut-title:    #881337;
+      --ut-chip:     #ffe4e6;
+      --ut-chip-bd:  #fecdd3;
+
+      /* External – Amber */
+      --ex:          #fffbeb;
+      --ex-bd:       #d97706;
+      --ex-title:    #78350f;
+      --ex-chip:     #fef3c7;
+      --ex-chip-bd:  #fde68a;
+
+      /* Database – Sky */
+      --db:          #f0f9ff;
+      --db-bd:       #0284c7;
+      --db-title:    #0c4a6e;
+      --db-chip:     #e0f2fe;
+      --db-chip-bd:  #bae6fd;
+
+      --r:    12px;
+      --r-sm: 8px;
+      --sh:   0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04);
+      --sh-md:0 4px 8px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.05);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      color: var(--text);
+      padding: 40px 48px;
+      min-width: 1360px;
+    }
+
+    /* ── Wrapper ───────────────────────────────────────────── */
+    .diagram {
+      max-width: 1380px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    /* ── Title ─────────────────────────────────────────────── */
+    .title-block {
+      text-align: center;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px;
+    }
+    .title-block h1 {
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: 4px;
+      font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+      color: var(--text);
+    }
+    .title-block p {
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 5px;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Section layer ─────────────────────────────────────── */
+    .layer {
+      border-radius: var(--r);
+      border: 1.5px solid;
+      padding: 16px 18px;
+      box-shadow: var(--sh);
+    }
+    .layer-header {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 13px;
+    }
+    .layer-title {
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 1.8px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .layer-subtitle {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .layer.frontend  { background: var(--fe); border-color: var(--fe-bd); }
+    .layer.frontend  .layer-title { color: var(--fe-title); }
+
+    .layer.backend   { background: var(--be); border-color: var(--be-bd); }
+    .layer.backend   .layer-title { color: var(--be-title); }
+
+    .layer.agent     { background: var(--ag); border-color: var(--ag-bd); }
+    .layer.agent     .layer-title { color: var(--ag-title); }
+
+    .layer.utils     { background: var(--ut); border-color: var(--ut-bd); }
+    .layer.utils     .layer-title { color: var(--ut-title); }
+
+    .layer.external  { background: var(--ex); border-color: var(--ex-bd); }
+    .layer.external  .layer-title { color: var(--ex-title); }
+
+    .layer.database  { background: var(--db); border-color: var(--db-bd); }
+    .layer.database  .layer-title { color: var(--db-title); }
+
+    /* ── User node ─────────────────────────────────────────── */
+    .user-wrap { display: flex; justify-content: center; }
+    .user-node {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r);
+      padding: 12px 40px;
+      text-align: center;
+      box-shadow: var(--sh);
+      width: 340px;
+    }
+    .user-node .node-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text);
+      display: block;
+    }
+    .user-node .node-sub {
+      font-size: 11px;
+      color: var(--dim);
+      display: block;
+      margin-top: 3px;
+    }
+
+    /* ── Connector arrows ──────────────────────────────────── */
+    .arrow-down {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 5px 0;
+    }
+    .arrow-down .line {
+      width: 2px;
+      height: 18px;
+      background: linear-gradient(to bottom, var(--border), var(--dim));
+    }
+    .arrow-down .head {
+      width: 0; height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid var(--dim);
+    }
+    .arrow-down .alabel {
+      font-size: 10px;
+      color: var(--dim);
+      margin-top: 3px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* ── Frontend pages ────────────────────────────────────── */
+    .pages-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 8px;
+      margin-bottom: 9px;
+    }
+    .page-chip {
+      background: var(--fe-chip);
+      border: 1px solid var(--fe-chip-bd);
+      border-radius: var(--r-sm);
+      padding: 9px 6px;
+      text-align: center;
+      cursor: default;
+      transition: transform .14s, box-shadow .14s;
+    }
+    .page-chip:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+    .page-chip .pname {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--fe-title);
+      display: block;
+    }
+    .page-chip .ppath {
+      font-size: 9.5px;
+      color: var(--dim);
+      display: block;
+      margin-top: 3px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* ── Context bar ───────────────────────────────────────── */
+    .ctx-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .ctx-item {
+      background: rgba(59, 130, 246, .10);
+      border-radius: 6px;
+      padding: 6px 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .ctx-item .cname {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--fe-title);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      white-space: nowrap;
+    }
+    .ctx-item .cdesc { font-size: 10px; color: var(--muted); }
+
+    /* ── Middleware banner ─────────────────────────────────── */
+    .mw-bar {
+      background: rgba(22, 163, 74, .12);
+      border: 1px solid var(--be-chip-bd);
+      border-radius: 7px;
+      padding: 8px 20px;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .mw-item { font-size: 11px; font-weight: 700; color: var(--be-title); }
+    .mw-sep  { width: 1px; height: 16px; background: var(--be-chip-bd); }
+
+    /* ── Router grid ───────────────────────────────────────── */
+    .router-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+    .router-chip {
+      background: var(--be-chip);
+      border: 1px solid var(--be-chip-bd);
+      border-radius: var(--r-sm);
+      padding: 10px 8px;
+      text-align: center;
+      cursor: default;
+      transition: transform .14s, box-shadow .14s;
+    }
+    .router-chip:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+    .router-chip .rroute {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--be-title);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      display: block;
+    }
+    .router-chip .rdesc {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 5px;
+      display: block;
+      line-height: 1.55;
+    }
+
+    /* ── Middle row ────────────────────────────────────────── */
+    .middle-row {
+      display: grid;
+      grid-template-columns: 1fr 270px 320px;
+      gap: 12px;
+    }
+
+    /* ── Stage pipeline ────────────────────────────────────── */
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+    }
+    .stage-box {
+      flex: 1;
+      min-width: 0;
+      background: var(--ag-chip);
+      border: 1px solid var(--ag-chip-bd);
+      border-radius: var(--r-sm);
+      padding: 10px 4px 10px;
+      text-align: center;
+      cursor: default;
+      transition: transform .14s, box-shadow .14s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .stage-box.llm {
+      background: var(--ex-chip);
+      border-color: var(--ex-bd);
+    }
+    .stage-box:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+    .stage-num  { font-size: 17px; font-weight: 800; color: var(--ag-title); line-height: 1; }
+    .stage-box.llm .stage-num { color: var(--ex-title); }
+    .sname      { font-size: 8.5px; font-weight: 800; color: var(--text); margin-top: 5px; letter-spacing: .5px; }
+    .scls       { font-size: 8px; color: var(--muted); margin-top: 3px; line-height: 1.3; }
+    .llm-badge  {
+      margin-top: 6px;
+      background: var(--ex-bd);
+      color: #fff;
+      font-size: 7.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .stage-sep  {
+      display: flex;
+      align-items: center;
+      padding: 0 3px;
+      color: var(--ag-bd);
+      font-size: 14px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    /* ── Utilities ─────────────────────────────────────────── */
+    .util-list { display: flex; flex-direction: column; gap: 8px; }
+    .util-item {
+      background: var(--ut-chip);
+      border: 1px solid var(--ut-chip-bd);
+      border-radius: var(--r-sm);
+      padding: 9px 11px;
+      cursor: default;
+      transition: transform .14s;
+    }
+    .util-item:hover { transform: translateX(3px); }
+    .uname {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ut-title);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .udesc { font-size: 10px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+
+    /* ── External ──────────────────────────────────────────── */
+    .ext-list { display: flex; flex-direction: column; gap: 8px; }
+    .ext-item {
+      background: var(--ex-chip);
+      border: 1px solid var(--ex-chip-bd);
+      border-radius: var(--r-sm);
+      padding: 10px 12px;
+      cursor: default;
+      transition: transform .14s;
+    }
+    .ext-item:hover { transform: translateX(-3px); }
+    .ext-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .ename { font-size: 12px; font-weight: 700; color: var(--ex-title); }
+    .etag  {
+      font-size: 9.5px;
+      font-weight: 700;
+      background: var(--ex-bd);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .eline {
+      font-size: 10px;
+      color: var(--muted);
+      display: block;
+      line-height: 1.7;
+    }
+    .eline::before { content: '·'; margin-right: 6px; color: var(--ex-bd); font-weight: 700; }
+
+    /* ── Database ──────────────────────────────────────────── */
+    .db-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+    }
+    .table-chip {
+      background: var(--db-chip);
+      border: 1px solid var(--db-chip-bd);
+      border-radius: var(--r-sm);
+      padding: 10px 8px;
+      text-align: center;
+      cursor: default;
+      transition: transform .14s, box-shadow .14s;
+    }
+    .table-chip:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+    .tname {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--db-title);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      display: block;
+    }
+    .tcols {
+      font-size: 9.5px;
+      color: var(--muted);
+      margin-top: 5px;
+      display: block;
+      line-height: 1.65;
+    }
+
+    /* ── Footer ────────────────────────────────────────────── */
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--dim);
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+<div class="diagram">
+
+  <!-- ══ Title ══════════════════════════════════════════════ -->
+  <div class="title-block">
+    <h1>MCP HUB</h1>
+    <p>System Architecture</p>
+  </div>
+
+  <!-- ══ User ═══════════════════════════════════════════════ -->
+  <div class="user-wrap">
+    <div class="user-node">
+      <span class="node-title">🌐&nbsp; Browser / User</span>
+      <span class="node-sub">Initiates all interactions via React SPA</span>
+    </div>
+  </div>
+
+  <div class="arrow-down">
+    <div class="line"></div><div class="head"></div>
+    <span class="alabel">HTTPS</span>
+  </div>
+
+  <!-- ══ Frontend ═══════════════════════════════════════════ -->
+  <section class="layer frontend">
+    <div class="layer-header">
+      <span class="layer-title">FRONTEND</span>
+      <span class="layer-subtitle">React + Vite &nbsp;·&nbsp; localhost:5173</span>
+    </div>
+
+    <div class="pages-grid">
+      <div class="page-chip">
+        <span class="pname">Auth Pages</span>
+        <span class="ppath">/login · /register</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">Chat Builder</span>
+        <span class="ppath">/create/chat</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">Doc Upload</span>
+        <span class="ppath">/create/upload</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">HITL Validator</span>
+        <span class="ppath">/validate/:id</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">Registry</span>
+        <span class="ppath">/registry</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">ChatGPT Hub</span>
+        <span class="ppath">/chatgpt</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">Monitor</span>
+        <span class="ppath">/monitor</span>
+      </div>
+      <div class="page-chip">
+        <span class="pname">Admin</span>
+        <span class="ppath">/admin</span>
+      </div>
+    </div>
+
+    <div class="ctx-bar">
+      <div class="ctx-item">
+        <span class="cname">AuthContext</span>
+        <span class="cdesc">JWT · user · role · login/logout</span>
+      </div>
+      <div class="ctx-item">
+        <span class="cname">LanguageContext</span>
+        <span class="cdesc">English / Japanese i18n</span>
+      </div>
+      <div class="ctx-item">
+        <span class="cname">ThemeContext</span>
+        <span class="cdesc">dark / light mode</span>
+      </div>
+      <div class="ctx-item">
+        <span class="cname">lib/api.js</span>
+        <span class="cdesc">Axios + JWT Bearer interceptor</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow-down">
+    <div class="line"></div><div class="head"></div>
+    <span class="alabel">REST + JWT Bearer</span>
+  </div>
+
+  <!-- ══ Backend ════════════════════════════════════════════ -->
+  <section class="layer backend">
+    <div class="layer-header">
+      <span class="layer-title">BACKEND</span>
+      <span class="layer-subtitle">FastAPI &nbsp;·&nbsp; localhost:8000</span>
+    </div>
+
+    <div class="mw-bar">
+      <span class="mw-item">CORS Middleware</span>
+      <div class="mw-sep"></div>
+      <span class="mw-item">SlowAPI Rate Limiting &nbsp;(5 – 60 req/min)</span>
+      <div class="mw-sep"></div>
+      <span class="mw-item">JWT Auth Guard</span>
+      <div class="mw-sep"></div>
+      <span class="mw-item">Global Exception Handlers</span>
+    </div>
+
+    <div class="router-grid">
+      <div class="router-chip">
+        <span class="rroute">/api/auth</span>
+        <span class="rdesc">register · login · me<br>admin user management</span>
+      </div>
+      <div class="router-chip">
+        <span class="rroute">/api/agent</span>
+        <span class="rdesc">chat · upload · manual<br>hitl · confirm · list</span>
+      </div>
+      <div class="router-chip">
+        <span class="rroute">/api/registry</span>
+        <span class="rdesc">list · get<br>delete</span>
+      </div>
+      <div class="router-chip">
+        <span class="rroute">/api/chatgpt</span>
+        <span class="rdesc">stats · connect · disconnect<br>chat with GPT-4o tools</span>
+      </div>
+      <div class="router-chip">
+        <span class="rroute">/api/monitor</span>
+        <span class="rdesc">overview · active<br>sessions · tool-calls</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow-down">
+    <div class="line"></div><div class="head"></div>
+  </div>
+
+  <!-- ══ Middle Row ═════════════════════════════════════════ -->
+  <div class="middle-row">
+
+    <!-- Agent Pipeline -->
+    <section class="layer agent">
+      <div class="layer-header">
+        <span class="layer-title">AGENT PIPELINE</span>
+        <span class="layer-subtitle">Orchestrator &nbsp;·&nbsp; 8-stage state machine</span>
+      </div>
+      <div class="pipeline">
+        <div class="stage-box">
+          <span class="stage-num">①</span>
+          <span class="sname">CLASSIFY</span>
+          <span class="scls">InputClassifier</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box">
+          <span class="stage-num">②</span>
+          <span class="sname">PARSE</span>
+          <span class="scls">ParsingAgent</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box llm">
+          <span class="stage-num">③</span>
+          <span class="sname">SCHEMA</span>
+          <span class="scls">SchemaAgent</span>
+          <span class="llm-badge">GPT-4o</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box llm">
+          <span class="stage-num">④</span>
+          <span class="sname">CONFIDENCE</span>
+          <span class="scls">ConfidenceAgent</span>
+          <span class="llm-badge">GPT-4o</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box">
+          <span class="stage-num">⑤</span>
+          <span class="sname">HITL</span>
+          <span class="scls">Human Review</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box">
+          <span class="stage-num">⑥</span>
+          <span class="sname">VALIDATE</span>
+          <span class="scls">SchemaValidator</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box">
+          <span class="stage-num">⑦</span>
+          <span class="sname">TEST</span>
+          <span class="scls">ApiTestAgent</span>
+        </div>
+        <div class="stage-sep">›</div>
+        <div class="stage-box">
+          <span class="stage-num">⑧</span>
+          <span class="sname">SAVE</span>
+          <span class="scls">ApiSaver</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Utilities -->
+    <section class="layer utils">
+      <div class="layer-header">
+        <span class="layer-title">UTILITIES</span>
+      </div>
+      <div class="util-list">
+        <div class="util-item">
+          <div class="uname">auth.py</div>
+          <div class="udesc">JWT creation · bcrypt verify<br>require_admin dependency</div>
+        </div>
+        <div class="util-item">
+          <div class="uname">encryption.py</div>
+          <div class="udesc">Fernet symmetric encryption<br>SHA-256 key derivation</div>
+        </div>
+        <div class="util-item">
+          <div class="uname">limiter.py</div>
+          <div class="udesc">SlowAPI shared instance<br>per-route rate limits</div>
+        </div>
+        <div class="util-item">
+          <div class="uname">translator.py</div>
+          <div class="udesc">api_to_tools()<br>resolve_tool_call()</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- External Services -->
+    <section class="layer external">
+      <div class="layer-header">
+        <span class="layer-title">EXTERNAL SERVICES</span>
+      </div>
+      <div class="ext-list">
+        <div class="ext-item">
+          <div class="ext-head">
+            <span class="ename">OpenAI</span>
+            <span class="etag">GPT-4o</span>
+          </div>
+          <span class="eline">Schema Generation &nbsp;(stage ③)</span>
+          <span class="eline">Confidence Scoring &nbsp;(stage ④)</span>
+          <span class="eline">Agentic Chat loop &nbsp;(up to 5 turns)</span>
+        </div>
+        <div class="ext-item">
+          <div class="ext-head">
+            <span class="ename">External REST APIs</span>
+          </div>
+          <span class="eline">Tool execution targets</span>
+          <span class="eline">HTTP via httpx &nbsp;·&nbsp; 15s timeout</span>
+          <span class="eline">Basic / Bearer / API Key auth</span>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /middle-row -->
+
+  <div class="arrow-down">
+    <div class="line"></div><div class="head"></div>
+  </div>
+
+  <!-- ══ Database ═══════════════════════════════════════════ -->
+  <section class="layer database">
+    <div class="layer-header">
+      <span class="layer-title">DATABASE</span>
+      <span class="layer-subtitle">PostgreSQL &nbsp;·&nbsp; SQLite (local dev)</span>
+    </div>
+    <div class="db-grid">
+      <div class="table-chip">
+        <span class="tname">users</span>
+        <span class="tcols">id · email · hashed_password<br>role · is_active · created_at</span>
+      </div>
+      <div class="table-chip">
+        <span class="tname">agent_sessions</span>
+        <span class="tcols">state · draft_api<br>confidence_map · final_api<br>human_edits · user_id</span>
+      </div>
+      <div class="table-chip">
+        <span class="tname">api_definitions</span>
+        <span class="tcols">name · base_url · version<br>visibility · user_id · tags</span>
+      </div>
+      <div class="table-chip">
+        <span class="tname">api_endpoints</span>
+        <span class="tcols">path · method · input_schema<br>output_schema<br>auth_credentials</span>
+      </div>
+      <div class="table-chip">
+        <span class="tname">chatgpt_connections</span>
+        <span class="tcols">api_definition_id · user_id<br>connected_at · is_active</span>
+      </div>
+      <div class="table-chip">
+        <span class="tname">tool_call_logs</span>
+        <span class="tcols">endpoint_name · arguments<br>result · success · called_at</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ Footer ═════════════════════════════════════════════ -->
+  <div class="footer">
+    <span>MCP Hub &nbsp;·&nbsp; FastAPI + React + PostgreSQL + GPT-4o</span>
+    <span>System Architecture &nbsp;v1.0</span>
+  </div>
+
+</div>
+</body>
+</html>
