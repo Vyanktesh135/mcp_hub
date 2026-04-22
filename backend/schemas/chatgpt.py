@@ -19,7 +19,8 @@ class ToolCallRecord(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    api_ids: list[str] = []  # empty = use all connected APIs
+    api_ids: list[str] = []       # empty = use all connected APIs
+    session_id: str | None = None  # None = start new session
 
 
 class ChatResponse(BaseModel):
@@ -28,6 +29,7 @@ class ChatResponse(BaseModel):
     model: str
     status: str = "ok"               # "ok" | "NO_TOOLS_CONNECTED" | "NO_RELEVANT_TOOL"
     available_tools: list[str] = []  # tool names when status == NO_RELEVANT_TOOL
+    session_id: str = ""             # echo back so frontend can track the session
 
 
 class StatsResponse(BaseModel):

@@ -19,6 +19,7 @@ from schemas.chatgpt import (
 )
 from utils.auth import get_current_user
 from models.user import User
+from context.context_layer import context_layer
 
 router = APIRouter(prefix="/api/chatgpt", tags=["chatgpt"])
 
@@ -124,6 +125,28 @@ def disconnect_api(
     conn.is_active = False
     db.commit()
     return ConnectResponse(api_definition_id=api_id, connected=False, message="Disconnected")
+
+
+# ── Session management ────────────────────────────────────────────────────────
+
+@router.get("/session/{session_id}")
+def get_session_info(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    info = context_layer.session_info(session_id)
+    if not info:
+        raise HTTPException(404, "Session not found or expired")
+    return info
+
+
+@router.delete("/session/{session_id}")
+def clear_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    context_layer.clear_session(session_id)
+    return {"cleared": True, "session_id": session_id}
 
 
 # ── Tool schema export ─────────────────────────────────────────────────────────
@@ -297,11 +320,22 @@ async def chat_with_tools(
             ),
             tool_calls=[],
             model="mock",
+            session_id=req.session_id or "",
         )
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
-    messages = [{"role": "user", "content": req.message}]
+
+    # ── Context Layer: inject history + system prompt ─────────────────────────
+    session_id, messages = context_layer.build_messages(
+        session_id=req.session_id,
+        user_message=req.message,
+        apis=apis,
+        user_email=current_user.email,
+    )
+
     records: list[ToolCallRecord] = []
+    tool_messages_this_turn: list[dict] = []
+    final_assistant_msg: dict = {}
 
     for _ in range(5):
         kwargs: dict = {"model": "gpt-4o", "messages": messages}
@@ -313,9 +347,19 @@ async def chat_with_tools(
         msg = resp.choices[0].message
 
         if not msg.tool_calls:
-            return ChatResponse(response=msg.content or "", tool_calls=records, model="gpt-4o")
+            final_assistant_msg = {"role": "assistant", "content": msg.content or ""}
+            context_layer.save_turn(
+                session_id, req.message, final_assistant_msg, tool_messages_this_turn
+            )
+            return ChatResponse(
+                response=msg.content or "",
+                tool_calls=records,
+                model="gpt-4o",
+                session_id=session_id,
+            )
 
-        messages.append(msg.model_dump(exclude_unset=True))
+        assistant_dict = msg.model_dump(exclude_unset=True)
+        messages.append(assistant_dict)
 
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments)
@@ -348,15 +392,18 @@ async def chat_with_tools(
                 result=result_text,
                 success=success,
             ))
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result_text,
-            })
+            tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result_text}
+            messages.append(tool_msg)
+            tool_messages_this_turn.append(tool_msg)
 
     final = await client.chat.completions.create(model="gpt-4o", messages=messages)
+    final_assistant_msg = {"role": "assistant", "content": final.choices[0].message.content or ""}
+    context_layer.save_turn(
+        session_id, req.message, final_assistant_msg, tool_messages_this_turn
+    )
     return ChatResponse(
         response=final.choices[0].message.content or "",
         tool_calls=records,
         model="gpt-4o",
+        session_id=session_id,
     )
