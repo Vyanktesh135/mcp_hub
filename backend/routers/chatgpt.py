@@ -231,32 +231,6 @@ async def _execute_tool(api: ApiDefinition, ep: ApiEndpoint, arguments: dict) ->
         return f"Request failed: {exc}", False
 
 
-def _is_query_relevant(message: str, tools: list) -> bool:
-    msg_words = set(
-        w for w in re.sub(r"[^\w\s]", " ", message.lower()).split()
-        if len(w) > 3
-    )
-    if not msg_words:
-        return False
-
-    for tool in tools:
-        fn = tool.get("function", {})
-        name  = fn.get("name", "").lower().replace("_", " ")
-        desc  = fn.get("description", "").lower()
-        param_text = " ".join(
-            f"{k} {v.get('description', '')}"
-            for k, v in (fn.get("parameters", {}).get("properties") or {}).items()
-        ).lower()
-        combined = f"{name} {desc} {param_text}"
-        tool_words = set(
-            w for w in re.sub(r"[^\w\s]", " ", combined).split()
-            if len(w) > 3
-        )
-        if msg_words & tool_words:
-            return True
-
-    return False
-
 
 def _build_auth(creds: dict | None) -> tuple:
     if not creds:
@@ -302,15 +276,6 @@ async def chat_with_tools(
 
     if not all_tools:
         return ChatResponse(response="", tool_calls=[], model="none", status="NO_TOOLS_CONNECTED")
-
-    if not _is_query_relevant(req.message, all_tools):
-        return ChatResponse(
-            response="",
-            tool_calls=[],
-            model="none",
-            status="NO_RELEVANT_TOOL",
-            available_tools=[t["function"]["name"] for t in all_tools],
-        )
 
     if settings.mock_llm or not settings.openai_api_key or settings.openai_api_key == "mock":
         return ChatResponse(
