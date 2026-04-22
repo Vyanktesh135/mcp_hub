@@ -211,6 +211,14 @@ async def chat_with_tools(
     if not all_tools:
         return ChatResponse(response="", tool_calls=[], model="none", status="NO_TOOLS_CONNECTED")
 
+    # ── Context Layer: always runs so session_id is always assigned ───────────
+    session_id, messages = context_layer.build_messages(
+        session_id=req.session_id,
+        user_message=req.message,
+        apis=apis,
+        user_email=current_user.email,
+    )
+
     if settings.mock_llm or not settings.openai_api_key or settings.openai_api_key == "mock":
         return ChatResponse(
             response=(
@@ -219,18 +227,10 @@ async def chat_with_tools(
             ),
             tool_calls=[],
             model="mock",
-            session_id=req.session_id or "",
+            session_id=session_id,
         )
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
-
-    # ── Context Layer: inject history + system prompt ─────────────────────────
-    session_id, messages = context_layer.build_messages(
-        session_id=req.session_id,
-        user_message=req.message,
-        apis=apis,
-        user_email=current_user.email,
-    )
 
     records: list[ToolCallRecord] = []
     turn_additions: list[dict] = []
