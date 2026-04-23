@@ -16,18 +16,28 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function login(email, password) {
-    const { access_token } = await authApi.login(email, password);
-    localStorage.setItem("mcp_token", access_token);
+  async function _hydrateFromToken(token) {
+    localStorage.setItem("mcp_token", token);
     const me = await authApi.me();
     setUser(me);
   }
 
+  async function login(email, password) {
+    return await authApi.login(email, password);
+  }
+
+  async function verifyOtp(email, otp) {
+    const { access_token } = await authApi.verifyOtp(email, otp);
+    await _hydrateFromToken(access_token);
+  }
+
+  async function loginWithToken(token) {
+    await _hydrateFromToken(token);
+  }
+
   async function register(email, password, fullName) {
     const { access_token } = await authApi.register(email, password, fullName);
-    localStorage.setItem("mcp_token", access_token);
-    const me = await authApi.me();
-    setUser(me);
+    await _hydrateFromToken(access_token);
   }
 
   function logout() {
@@ -36,7 +46,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, verifyOtp, loginWithToken, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

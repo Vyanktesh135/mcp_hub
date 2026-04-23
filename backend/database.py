@@ -31,7 +31,7 @@ def get_db():
 
 
 def init_db():
-    from models import agent_session, api_definition, auth_config, chatgpt_connection, user  # noqa: F401
+    from models import agent_session, api_definition, auth_config, chatgpt_connection, user, token_usage  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _migrate()
 
@@ -51,6 +51,11 @@ def _migrate():
         user_cols = {c["name"] for c in inspector.get_columns("users")}
         if "role" not in user_cols:
             _add_col("users", "role", "TEXT NOT NULL DEFAULT 'user'")
+        if "auth_provider" not in user_cols:
+            _add_col("users", "auth_provider", "TEXT NOT NULL DEFAULT 'local'")
+        if "hashed_password" in user_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL")) if not engine.url.drivername.startswith("sqlite") else None
 
     # agent_sessions
     if "agent_sessions" in tables:

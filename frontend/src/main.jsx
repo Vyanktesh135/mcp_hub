@@ -14,12 +14,14 @@ import Monitor       from "./pages/Monitor";
 import Admin         from "./pages/Admin";
 import Login         from "./pages/Login";
 import Register      from "./pages/Register";
+import AuthCallback  from "./pages/AuthCallback";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
 
 const router = createBrowserRouter([
-  { path: "/login",    element: <Login /> },
-  { path: "/register", element: <Register /> },
+  { path: "/login",         element: <Login /> },
+  { path: "/register",      element: <Register /> },
+  { path: "/auth/callback", element: <AuthCallback /> },
   {
     path: "/",
     element: <ProtectedRoute><App /></ProtectedRoute>,

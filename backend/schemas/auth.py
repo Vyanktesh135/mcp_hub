@@ -12,6 +12,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class OTPVerifyRequest(BaseModel):
+    email: str
+    otp: str
+
+
+class OTPRequiredResponse(BaseModel):
+    status: str = "otp_required"
+    message: str
+    email: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -23,6 +34,7 @@ class UserResponse(BaseModel):
     full_name: str | None
     role: str
     is_active: bool
+    auth_provider: str = "local"
     created_at: str
 
 

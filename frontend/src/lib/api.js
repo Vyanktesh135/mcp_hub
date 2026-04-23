@@ -24,7 +24,11 @@ export const authApi = {
     http.post("/api/auth/register", { email, password, full_name: fullName }).then(r => r.data),
   login: (email, password) =>
     http.post("/api/auth/login", { email, password }).then(r => r.data),
+  verifyOtp: (email, otp) =>
+    http.post("/api/auth/verify-otp", { email, otp }).then(r => r.data),
   me: () => http.get("/api/auth/me").then(r => r.data),
+  googleLoginUrl:    () => "http://localhost:8000/api/auth/google",
+  githubLoginUrl: () => "http://localhost:8000/api/auth/github",
 };
 
 export const adminApi = {
@@ -69,6 +73,16 @@ export const monitorApi = {
   sessions:   (limit = 30) => http.get(`/api/monitor/sessions?limit=${limit}`).then(r => r.data),
   toolCalls:  (limit = 30) => http.get(`/api/monitor/tool-calls?limit=${limit}`).then(r => r.data),
   pipeline:   () => http.get("/api/monitor/pipeline").then(r => r.data),
+};
+
+export const subscriptionApi = {
+  requestAccess: ()             => http.post("/api/subscription/request").then(r => r.data),
+  getStatus:     ()             => http.get("/api/subscription/status").then(r => r.data),
+  adminRequests: ()             => http.get("/api/subscription/admin/requests").then(r => r.data),
+  adminAllUsers: ()             => http.get("/api/subscription/admin/all-users").then(r => r.data),
+  approve:       (userId)       => http.patch(`/api/subscription/admin/${userId}/approve`).then(r => r.data),
+  reject:        (userId)       => http.patch(`/api/subscription/admin/${userId}/reject`).then(r => r.data),
+  topUp:         (userId, amt)  => http.post(`/api/subscription/admin/${userId}/top-up`, { amount: amt }).then(r => r.data),
 };
 
 export const chatgptApi = {
