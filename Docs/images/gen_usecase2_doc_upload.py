@@ -1,5 +1,5 @@
 """
-MCP Hub — Use Case 2: Tool Creation via Doc Upload
+MCP Hub — Use Case 2: Tool Creation via Doc Upload (v2 — Smart Chunking Pipeline)
 Renders to: Docs/images/usecase2_doc_upload.png
 """
 import matplotlib
@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 import os
 
-W, H = 22, 17
+W, H = 24, 20
 BG = "#f6f8fa"
 
 C = {
@@ -21,10 +21,11 @@ C = {
     "comp_fe":  {"bg": "#dbeafe", "bd": "#93c5fd", "hi": "#1e40af", "lo": "#2563eb"},
     "comp_be":  {"bg": "#dcfce7", "bd": "#86efac", "hi": "#14532d", "lo": "#15803d"},
     "comp_ag":  {"bg": "#ede9fe", "bd": "#c4b5fd", "hi": "#3b0764", "lo": "#6d28d9"},
-    "comp_ext": {"bg": "#fef3c7", "bd": "#fcd34d", "hi": "#451a03", "lo": "#92400e"},
     "comp_db":  {"bg": "#e0f2fe", "bd": "#7dd3fc", "hi": "#0c4a6e", "lo": "#0369a1"},
     "comp":     {"bg": "#f8fafc", "bd": "#cbd5e1", "hi": "#1e293b", "lo": "#64748b"},
     "llm":      {"bg": "#fef3c7", "bd": "#f59e0b", "hi": "#78350f", "lo": "#92400e"},
+    "green":    {"bg": "#f0fdf4", "bd": "#22c55e", "hi": "#14532d", "lo": "#15803d"},
+    "blue":     {"bg": "#eff6ff", "bd": "#60a5fa", "hi": "#1e40af", "lo": "#2563eb"},
 }
 TEXT  = "#0f172a"
 MUTED = "#475569"
@@ -51,12 +52,10 @@ def txt(x, y, s, color=TEXT, sz=7, w="normal", ha="center", va="center", z=10, m
             ha=ha, va=va, zorder=z, clip_on=False,
             fontfamily="monospace" if mono else "sans-serif")
 
-def arrow(x1, y1, x2, y2, color=DIM, lw=1.3, dash=False):
-    props = dict(arrowstyle="->", color=color, lw=lw, mutation_scale=10)
-    if dash:
-        props["linestyle"] = "dashed"
+def arrow(x1, y1, x2, y2, color=DIM, lw=1.3):
     ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
-                arrowprops=props, zorder=6, annotation_clip=False)
+                arrowprops=dict(arrowstyle="->", color=color, lw=lw, mutation_scale=10),
+                zorder=6, annotation_clip=False)
 
 def hline(y, color="#cbd5e1", lw=0.8):
     ax.plot([0.4, W - 0.4], [y, y], color=color, lw=lw, zorder=1)
@@ -68,196 +67,238 @@ def step_badge(x, y, num, color):
     ax.text(x, y, str(num), color="white", fontsize=7, fontweight="bold",
             ha="center", va="center", zorder=13, clip_on=False)
 
-def llm_tag(x, y):
-    box(x, y, 1.3, 0.34, "llm", lw=0.5, z=8, r=0.06)
-    txt(x + 0.65, y + 0.17, "GPT-4o", C["external"]["hi"], sz=6, w="bold")
+def llm_tag(x, y, label="GPT-4o"):
+    box(x, y, 1.5, 0.34, "llm", lw=0.5, z=8, r=0.06)
+    txt(x + 0.75, y + 0.17, label, C["external"]["hi"], sz=6, w="bold")
+
+def no_llm_tag(x, y):
+    box(x, y, 1.5, 0.34, "green", lw=0.5, z=8, r=0.06)
+    txt(x + 0.75, y + 0.17, "No LLM", C["green"]["hi"], sz=6, w="bold")
 
 # ── Title ──────────────────────────────────────────────────────────────────────
-txt(W / 2, 16.55, "MCP HUB  —  Use Case 2", TEXT, sz=18, w="bold", mono=True)
-txt(W / 2, 16.05, "Tool Creation via Doc Upload  ·  Full AI pipeline  ·  3× GPT-4o calls", MUTED, sz=9.5)
-hline(15.78)
+txt(W / 2, 19.55, "MCP HUB  —  Use Case 2  (v2)", TEXT, sz=18, w="bold", mono=True)
+txt(W / 2, 19.05, "Tool Creation via Doc Upload  ·  Smart Chunking Pipeline  ·  No token overflow", MUTED, sz=9.5)
+hline(18.78)
 
 step_x = 0.55
-ROW = [14.6, 12.8, 11.0, 9.2, 7.4, 5.6, 3.8, 1.9]
-RH  = 1.2
+ROW = [17.6, 15.7, 13.8, 11.4, 9.2, 7.2, 5.2, 3.2, 1.2]
+RH  = 1.3
 
-# ── Step 1 — Doc Upload frontend ──────────────────────────────────────────────
+# ── Step 1 — Frontend Upload ──────────────────────────────────────────────────
 r = 0
-box(1.0, ROW[r], 20.0, RH, "frontend", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "FRONTEND  ·  Doc Upload  (/create/upload)", C["frontend"]["hi"], sz=8, w="bold", ha="center")
+box(1.0, ROW[r], 22.0, RH, "frontend", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "FRONTEND  ·  Doc Upload  (/create/upload)", C["frontend"]["hi"], sz=8, w="bold", ha="center")
 step_badge(step_x, ROW[r] + RH / 2, 1, C["frontend"]["bd"])
 
 items = [
-    ("Drag & Drop", "PDF / YAML / JSON\nTXT / Markdown"),
+    ("Drag & Drop", "PDF · DOCX · JSON\nYAML · TXT · Postman"),
     ("File preview", "filename · size\ntype indicator"),
-    ("POST multipart", "POST /api/agent/upload\nJWT Bearer"),
+    ("POST /api/agent/upload", "multipart/form-data\nJWT Bearer"),
     ("Poll status", "GET /api/agent/:id\nevery 2s while processing"),
 ]
-iw = 4.6
+iw = 5.2
 for i, (label, detail) in enumerate(items):
-    ix = 1.2 + i * (iw + 0.1)
-    box(ix, ROW[r] + 0.1, iw, 0.72, "comp_fe", lw=0.7, z=4, r=0.09)
-    txt(ix + iw / 2, ROW[r] + 0.58, label,  C["frontend"]["hi"], sz=7, w="bold")
-    txt(ix + iw / 2, ROW[r] + 0.26, detail, DIM,                sz=6.2, mono=True)
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["frontend"]["bd"])
+    ix = 1.2 + i * (iw + 0.12)
+    box(ix, ROW[r] + 0.12, iw, 0.80, "comp_fe", lw=0.7, z=4, r=0.09)
+    txt(ix + iw/2, ROW[r] + 0.65, label,  C["frontend"]["hi"], sz=7, w="bold")
+    txt(ix + iw/2, ROW[r] + 0.30, detail, DIM, sz=6.2, mono=True)
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.28, C["frontend"]["bd"])
 
-# ── Step 2 — Backend receives file ────────────────────────────────────────────
+# ── Step 2 — Backend + InputClassifier ───────────────────────────────────────
 r = 1
-box(1.0, ROW[r], 20.0, RH, "backend", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "BACKEND  ·  POST /api/agent/upload  →  start_upload()", C["backend"]["hi"], sz=8, w="bold", ha="center")
+box(1.0, ROW[r], 22.0, RH, "backend", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "BACKEND  ·  InputClassifier  (no LLM)  —  detect mode only", C["backend"]["hi"], sz=8, w="bold", ha="center")
 step_badge(step_x, ROW[r] + RH / 2, 2, C["backend"]["bd"])
 
 items2 = [
-    ("File saved", "tmp disk path\n/tmp/upload_xxx"),
-    ("AgentSession", "state=INIT\ncreated in DB"),
-    ("Background task", "FastAPI BackgroundTasks\norch.start(file_path)"),
-    ("Response 202", "session_id returned\nfrontend polls /status"),
+    ("File saved to disk", "tmp path stored\nin AgentSession"),
+    ("Mode = DOC", "file_path set\nraw_input = path"),
+    ("AgentSession", "state = INIT\ncreated in DB"),
+    ("No truncation", "chunker handles\nall sizes"),
 ]
 for i, (label, detail) in enumerate(items2):
-    ix = 1.2 + i * (iw + 0.1)
-    box(ix, ROW[r] + 0.1, iw, 0.72, "comp_be", lw=0.7, z=4, r=0.09)
-    txt(ix + iw / 2, ROW[r] + 0.58, label,  C["backend"]["hi"], sz=7, w="bold")
-    txt(ix + iw / 2, ROW[r] + 0.26, detail, MUTED,              sz=6.2)
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["agent"]["bd"])
+    ix = 1.2 + i * (iw + 0.12)
+    box(ix, ROW[r] + 0.12, iw, 0.80, "comp_be", lw=0.7, z=4, r=0.09)
+    txt(ix + iw/2, ROW[r] + 0.65, label,  C["backend"]["hi"], sz=7, w="bold")
+    txt(ix + iw/2, ROW[r] + 0.30, detail, MUTED, sz=6.2)
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.28, C["agent"]["bd"])
 
-# ── Step 3 — InputClassifier ──────────────────────────────────────────────────
+# ── Step 3 — doc_extractor + smart_chunker ───────────────────────────────────
 r = 2
-box(1.0, ROW[r], 20.0, RH, "agent", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "STAGE 1  ·  CLASSIFYING  →  InputClassifier  (no LLM)", C["agent"]["hi"], sz=8, w="bold", ha="center")
-step_badge(step_x, ROW[r] + RH / 2, 3, C["agent"]["bd"])
+box(1.0, ROW[r], 22.0, RH * 1.4, "agent", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH * 1.4 - 0.22, "STAGE 1  ·  PARSING  →  doc_extractor + smart_chunker  (Type A = no LLM  ·  Type B = LLM)", C["agent"]["hi"], sz=8, w="bold", ha="center")
+step_badge(step_x, ROW[r] + RH * 1.4 / 2, 3, C["agent"]["bd"])
 
-items3 = [
-    ("PDF", "pypdf.PdfReader\nextract all pages"),
-    ("YAML / JSON", "yaml.safe_load\nor json.loads"),
-    ("TXT / MD", "open().read()\nraw text"),
-    ("Truncate", "max 60,000 chars\nprevents token overflow"),
-    ("extracted_schema", "saved to\nAgentSession"),
+# Left branch — Type A (structured)
+box(1.2, ROW[r] + 0.12, 9.8, 1.45, "green", lw=1.2, z=4, r=0.12)
+txt(6.1, ROW[r] + 1.35, "Type A  —  Structured formats  (no LLM)", C["green"]["hi"], sz=7.5, w="bold")
+no_llm_tag(8.9, ROW[r] + 1.28)
+
+opt_a = [
+    ("OpenAPI JSON/YAML", "iterate spec.paths\n1 chunk per {method+path}"),
+    ("Postman Collection", "iterate items recursively\n1 chunk per request"),
 ]
-iw3 = 3.7
-for i, (label, detail) in enumerate(items3):
-    ix = 1.2 + i * (iw3 + 0.08)
-    box(ix, ROW[r] + 0.1, iw3, 0.72, "comp_ag", lw=0.7, z=4, r=0.09)
-    txt(ix + iw3 / 2, ROW[r] + 0.58, label,  C["agent"]["hi"], sz=7, w="bold")
-    txt(ix + iw3 / 2, ROW[r] + 0.26, detail, MUTED,            sz=6)
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["agent"]["bd"])
+for i, (label, detail) in enumerate(opt_a):
+    cx = 1.4 + i * 4.8
+    box(cx, ROW[r] + 0.22, 4.5, 0.90, "comp_ag", lw=0.6, z=6, r=0.08)
+    txt(cx + 2.25, ROW[r] + 0.82, label,  C["agent"]["hi"], sz=6.8, w="bold")
+    txt(cx + 2.25, ROW[r] + 0.45, detail, MUTED, sz=6, mono=True)
 
-# ── Step 4 — ParsingAgent + SchemaAgent (LLM 1+2) ────────────────────────────
+# Right branch — Type B (unstructured)
+box(11.3, ROW[r] + 0.12, 11.5, 1.45, "llm", lw=1.2, z=4, r=0.12)
+txt(17.05, ROW[r] + 1.35, "Type B  —  Unstructured  (PDF / DOCX / TXT)", C["external"]["hi"], sz=7.5, w="bold")
+llm_tag(20.3, ROW[r] + 1.28)
+
+opt_c = [
+    ("Pass 1 — Index", "1 LLM call on full text\nextract [{method, path}]"),
+    ("Find sections", "regex window\n±3K chars per endpoint"),
+    ("Pass 2 — Extract", "1 LLM call per endpoint\nall run in parallel"),
+]
+for i, (label, detail) in enumerate(opt_c):
+    cx = 11.5 + i * 3.7
+    box(cx, ROW[r] + 0.22, 3.5, 0.90, "comp_ag", lw=0.6, z=6, r=0.08)
+    txt(cx + 1.75, ROW[r] + 0.82, label,  C["agent"]["hi"], sz=6.8, w="bold")
+    txt(cx + 1.75, ROW[r] + 0.45, detail, MUTED, sz=6, mono=True)
+    if i < 2:
+        arrow(cx + 3.5, ROW[r] + 0.67, cx + 3.7, ROW[r] + 0.67, C["agent"]["lo"], lw=0.8)
+
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.28, C["agent"]["bd"])
+
+# ── Step 4 — EndpointChunks (result) ─────────────────────────────────────────
 r = 3
-box(1.0, ROW[r], 20.0, RH, "agent", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "STAGE 2 + 3  ·  PARSING → SCHEMA_GENERATING  (2× GPT-4o)", C["agent"]["hi"], sz=8, w="bold", ha="center")
+box(1.0, ROW[r], 22.0, RH, "agent", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "CHUNKS READY  ·  [EndpointChunk]  —  1 chunk = 1 endpoint, zero boundary overlap", C["agent"]["hi"], sz=8, w="bold", ha="center")
 step_badge(step_x, ROW[r] + RH / 2, 4, C["agent"]["bd"])
 
-# Left: ParsingAgent
-box(1.2, ROW[r] + 0.1, 8.8, 0.72, "llm", lw=1.0, z=4, r=0.09)
-txt(5.6, ROW[r] + 0.62, "ParsingAgent  ·  GPT-4o call #1", C["external"]["hi"], sz=7.5, w="bold")
-txt(5.6, ROW[r] + 0.36, "Extract endpoints · paths · methods · params from raw text", MUTED, sz=6.3)
-txt(5.6, ROW[r] + 0.18, "Output: raw structure saved as extracted_schema", DIM, sz=6, mono=True)
-llm_tag(8.4, ROW[r] + 0.62)
+chunk_items = [
+    ("method", "GET · POST\nPUT · DELETE"),
+    ("path",   "/resource/{id}\nexact path"),
+    ("hint",   "GET /resource/{id}\nhuman label"),
+    ("content","raw endpoint JSON\nor text section"),
+    ("base_info", "name · base_url\nauth_type"),
+]
+cw = 4.0
+for i, (label, detail) in enumerate(chunk_items):
+    cx = 1.4 + i * (cw + 0.22)
+    box(cx, ROW[r] + 0.12, cw, 0.80, "comp_ag", lw=0.7, z=5, r=0.09)
+    txt(cx + cw/2, ROW[r] + 0.66, label,  C["agent"]["hi"], sz=7, w="bold", mono=True)
+    txt(cx + cw/2, ROW[r] + 0.30, detail, MUTED, sz=6.2)
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.28, C["agent"]["bd"])
 
-# Right: SchemaAgent
-box(10.3, ROW[r] + 0.1, 10.5, 0.72, "llm", lw=1.0, z=4, r=0.09)
-txt(15.55, ROW[r] + 0.62, "SchemaAgent  ·  GPT-4o call #2", C["external"]["hi"], sz=7.5, w="bold")
-txt(15.55, ROW[r] + 0.36, "Convert to OpenAPI-compatible JSON  ·  input_schema with type/properties/required", MUTED, sz=6.3)
-txt(15.55, ROW[r] + 0.18, "Output: draft_api saved to AgentSession", DIM, sz=6, mono=True)
-llm_tag(19.2, ROW[r] + 0.62)
-
-arrow(10.0, ROW[r] + 0.46, 10.3, ROW[r] + 0.46, C["external"]["lo"])
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["agent"]["bd"])
-
-# ── Step 5 — ConfidenceAgent ──────────────────────────────────────────────────
+# ── Step 5 — SchemaAgent parallel ────────────────────────────────────────────
 r = 4
-box(1.0, ROW[r], 20.0, RH, "agent", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "STAGE 4  ·  CONFIDENCE_SCORING  ·  GPT-4o call #3  →  state = HITL_PENDING", C["agent"]["hi"], sz=8, w="bold", ha="center")
+box(1.0, ROW[r], 22.0, RH, "agent", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "STAGE 3  ·  SCHEMA_GENERATING  →  SchemaAgent  (parallel, 1 LLM call per endpoint)", C["agent"]["hi"], sz=8, w="bold", ha="center")
 step_badge(step_x, ROW[r] + RH / 2, 5, C["agent"]["bd"])
 
-box(1.2, ROW[r] + 0.1, 19.6, 0.72, "llm", lw=1.0, z=4, r=0.09)
-conf_items = [
-    ("Dot-notation keys", '"endpoints.0.path"'),
-    ("Score  0-100",      "per field"),
-    ("Status",            "HIGH · MEDIUM\nLOW · MISSING"),
-    ("Suggestion",        "fix hint if low\nnull if high"),
-    ("confidence_map",    "saved to DB\nHITL_PENDING set"),
-]
-cw = 3.7
-for i, (label, detail) in enumerate(conf_items):
-    cx = 1.4 + i * (cw + 0.06)
-    txt(cx + cw / 2, ROW[r] + 0.64, label,  C["external"]["hi"], sz=6.8, w="bold")
-    txt(cx + cw / 2, ROW[r] + 0.30, detail, MUTED,               sz=6,   mono=True)
-llm_tag(18.9, ROW[r] + 0.62)
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["frontend"]["bd"])
+# meta call
+box(1.2, ROW[r] + 0.12, 3.8, 0.80, "llm", lw=0.9, z=5, r=0.09)
+txt(3.1, ROW[r] + 0.68, "meta call", C["external"]["hi"], sz=7, w="bold")
+txt(3.1, ROW[r] + 0.40, "name · base_url\nauth_type · version", MUTED, sz=6)
+txt(3.1, ROW[r] + 0.18, "1 call", DIM, sz=5.5)
 
-# ── Step 6 — HITL human review ────────────────────────────────────────────────
+# endpoint calls
+for i in range(5):
+    ex = 5.3 + i * 3.3
+    label = f"endpoint {i+1}" if i < 4 else "endpoint N"
+    box(ex, ROW[r] + 0.12, 3.1, 0.80, "llm", lw=0.9, z=5, r=0.09)
+    txt(ex + 1.55, ROW[r] + 0.62, label, C["external"]["hi"], sz=6.5, w="bold")
+    txt(ex + 1.55, ROW[r] + 0.38, "input_schema\nrequired[]", MUTED, sz=5.8)
+    txt(ex + 1.55, ROW[r] + 0.17, "≤2048 tokens", DIM, sz=5.5)
+
+txt(21.3, ROW[r] + 0.46, "all\nparallel", C["agent"]["hi"], sz=6.5, w="bold", ha="center")
+txt(12.0, ROW[r] + 0.0, "asyncio.gather() — never truncates — scales to any number of endpoints", DIM, sz=6, ha="center")
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.22, C["agent"]["bd"])
+
+# ── Step 6 — ConfidenceAgent ──────────────────────────────────────────────────
 r = 5
-box(1.0, ROW[r], 20.0, RH, "frontend", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "FRONTEND  ·  HITL Validator  (/validate/:id)  —  Human Review", C["frontend"]["hi"], sz=8, w="bold", ha="center")
-step_badge(step_x, ROW[r] + RH / 2, 6, C["frontend"]["bd"])
+box(1.0, ROW[r], 22.0, RH, "agent", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "STAGE 4  ·  CONFIDENCE_SCORING  (GPT-4o)  →  state = HITL_PENDING", C["agent"]["hi"], sz=8, w="bold", ha="center")
+step_badge(step_x, ROW[r] + RH / 2, 6, C["agent"]["bd"])
 
-hitl_items = [
-    ("Confidence dots", "GREEN ≥70\nYELLOW 40-69\nRED <40"),
-    ("Editable fields", "click any field\nto override value"),
-    ("Endpoint list",   "add / remove\nendpoints inline"),
-    ("POST hitl",       "POST /api/agent/:id/hitl\nhuman_edits payload"),
-    ("orchestrator", "_merge_edits()\ndraft + human_edits"),
+box(1.2, ROW[r] + 0.12, 21.6, 0.80, "llm", lw=1.0, z=4, r=0.09)
+conf = [
+    ("Score 0-100", "per field"),
+    ("HIGH ≥70", "GREEN dot"),
+    ("MEDIUM 40-69", "YELLOW dot"),
+    ("LOW < 40", "RED dot"),
+    ("Suggestion", "fix hint if low"),
+    ("confidence_map", "saved to DB"),
 ]
-hw = 3.7
-for i, (label, detail) in enumerate(hitl_items):
-    hx = 1.2 + i * (hw + 0.08)
-    box(hx, ROW[r] + 0.1, hw, 0.72, "comp_fe", lw=0.7, z=4, r=0.09)
-    txt(hx + hw / 2, ROW[r] + 0.62, label,  C["frontend"]["hi"], sz=7, w="bold")
-    txt(hx + hw / 2, ROW[r] + 0.28, detail, MUTED,               sz=6)
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["agent"]["bd"])
+for i, (label, detail) in enumerate(conf):
+    cx = 1.5 + i * 3.6
+    txt(cx + 1.5, ROW[r] + 0.62, label,  C["external"]["hi"], sz=6.8, w="bold")
+    txt(cx + 1.5, ROW[r] + 0.30, detail, MUTED, sz=6.2)
+llm_tag(20.8, ROW[r] + 0.62)
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.22, C["frontend"]["bd"])
 
-# ── Step 7 — Validator + ApiTestAgent + ApiSaver ──────────────────────────────
+# ── Step 7 — HITL ────────────────────────────────────────────────────────────
 r = 6
-box(1.0, ROW[r], 20.0, RH, "agent", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "STAGE 6 + 7 + 8  ·  SchemaValidator → ApiTestAgent → ApiSaver", C["agent"]["hi"], sz=8, w="bold", ha="center")
-step_badge(step_x, ROW[r] + RH / 2, 7, C["agent"]["bd"])
+box(1.0, ROW[r], 22.0, RH, "frontend", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "FRONTEND  ·  HITL Validator  (/validate/:id)  —  Human Review", C["frontend"]["hi"], sz=8, w="bold", ha="center")
+step_badge(step_x, ROW[r] + RH / 2, 7, C["frontend"]["bd"])
+
+hitl = [
+    ("Confidence dots", "GREEN / YELLOW / RED\nper field"),
+    ("Edit fields", "click any field\nto override"),
+    ("Endpoints", "add / remove\nendpoints inline"),
+    ("POST /hitl", "human_edits\npayload"),
+]
+for i, (label, detail) in enumerate(hitl):
+    ix = 1.2 + i * (iw + 0.1)
+    box(ix, ROW[r] + 0.12, iw, 0.80, "comp_fe", lw=0.7, z=4, r=0.09)
+    txt(ix + iw/2, ROW[r] + 0.65, label,  C["frontend"]["hi"], sz=7, w="bold")
+    txt(ix + iw/2, ROW[r] + 0.30, detail, MUTED, sz=6.2)
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.22, C["agent"]["bd"])
+
+# ── Step 8 — Validate + Test + Save ──────────────────────────────────────────
+r = 7
+box(1.0, ROW[r], 22.0, RH, "agent", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "STAGE 5+6+7  ·  SchemaValidator → ApiTestAgent → ApiSaver", C["agent"]["hi"], sz=8, w="bold", ha="center")
+step_badge(step_x, ROW[r] + RH / 2, 8, C["agent"]["bd"])
 
 pipeline = [
-    ("SchemaValidator", "Rule-based checks\nname/url/paths/methods", False),
-    ("ApiTestAgent",    "GET-only live tests\nhttpx + GPT-4o #4 assess", True),
-    ("encrypt_creds()", "Fernet encrypt\nauthentication stored", False),
-    ("ApiSaver",        "ApiDefinition +\nApiEndpoint rows → DB", False),
-    ("state=SAVED",     "Session finalized\nresult_id returned", False),
+    ("SchemaValidator", "rule-based checks\nname/url/paths/methods", False),
+    ("ApiTestAgent",    "live GET tests\nhttpx + GPT-4o assess", True),
+    ("encrypt_creds()", "Fernet encrypt\nauth credentials", False),
+    ("ApiSaver", "ApiDefinition +\nApiEndpoint → DB", False),
+    ("state = SAVED", "session finalized\nresult_id returned", False),
 ]
-pw = 3.7
+pw = 4.0
 for i, (label, detail, is_llm) in enumerate(pipeline):
-    px = 1.2 + i * (pw + 0.08)
+    px = 1.2 + i * (pw + 0.22)
     key = "llm" if is_llm else "comp_ag"
-    box(px, ROW[r] + 0.1, pw, 0.72, key, lw=0.7, z=4, r=0.09)
-    txt(px + pw / 2, ROW[r] + 0.62, label,  C["agent"]["hi"], sz=7, w="bold")
-    txt(px + pw / 2, ROW[r] + 0.28, detail, MUTED,            sz=6)
+    box(px, ROW[r] + 0.12, pw, 0.80, key, lw=0.7, z=4, r=0.09)
+    txt(px + pw/2, ROW[r] + 0.64, label,  C["agent"]["hi"], sz=7, w="bold")
+    txt(px + pw/2, ROW[r] + 0.30, detail, MUTED, sz=6)
     if is_llm:
-        llm_tag(px + pw - 1.35, ROW[r] + 0.62)
+        llm_tag(px + pw - 1.6, ROW[r] + 0.65)
     if i < len(pipeline) - 1:
-        ax.annotate("", xy=(px + pw + 0.08, ROW[r] + 0.46),
-                    xytext=(px + pw, ROW[r] + 0.46),
-                    arrowprops=dict(arrowstyle="->", color=C["agent"]["lo"], lw=0.7),
-                    zorder=7, annotation_clip=False)
-arrow(11.0, ROW[r], 11.0, ROW[r] - 0.28, C["db"]["bd"])
+        arrow(px + pw, ROW[r] + 0.52, px + pw + 0.22, ROW[r] + 0.52, C["agent"]["lo"], lw=0.7)
+arrow(12.0, ROW[r], 12.0, ROW[r] - 0.22, C["db"]["bd"])
 
-# ── Step 8 — Database ─────────────────────────────────────────────────────────
-r = 7
-box(1.0, ROW[r], 20.0, RH - 0.1, "db", lw=1.6, z=2, r=0.18)
-txt(11.0, ROW[r] + RH - 0.22, "DATABASE  ·  PostgreSQL", C["db"]["hi"], sz=8, w="bold", ha="center")
-step_badge(step_x, ROW[r] + (RH - 0.1) / 2, 8, C["db"]["bd"])
+# ── Step 9 — DB ───────────────────────────────────────────────────────────────
+r = 8
+box(1.0, ROW[r], 22.0, RH, "db", lw=1.6, z=2, r=0.18)
+txt(12.0, ROW[r] + RH - 0.22, "DATABASE  ·  PostgreSQL", C["db"]["hi"], sz=8, w="bold", ha="center")
+step_badge(step_x, ROW[r] + RH / 2, 9, C["db"]["bd"])
 
 db_tables = [
-    ("api_definitions",  "name · base_url · tags\nvisibility · user_id"),
-    ("api_endpoints",    "path · method · input_schema\nauth_credentials (encrypted)"),
-    ("agent_sessions",   "state=SAVED · draft_api\nconfidence_map · final_api"),
+    ("api_definitions",  "name · base_url\nvisibility · user_id"),
+    ("api_endpoints",    "path · method\ninput_schema (full)"),
+    ("agent_sessions",   "state=SAVED\ndraft_api · confidence_map"),
 ]
-dw = 6.0
+dw = 6.8
 for i, (label, detail) in enumerate(db_tables):
-    dx = 1.2 + i * (dw + 0.2)
-    box(dx, ROW[r] + 0.1, dw, 0.72, "comp_db", lw=0.7, z=4, r=0.09)
-    txt(dx + dw / 2, ROW[r] + 0.58, label,  C["db"]["hi"], sz=7.5, w="bold", mono=True)
-    txt(dx + dw / 2, ROW[r] + 0.26, detail, MUTED,         sz=6.2)
+    dx = 1.2 + i * (dw + 0.3)
+    box(dx, ROW[r] + 0.12, dw, 0.80, "comp_db", lw=0.7, z=4, r=0.09)
+    txt(dx + dw/2, ROW[r] + 0.64, label,  C["db"]["hi"], sz=7.5, w="bold", mono=True)
+    txt(dx + dw/2, ROW[r] + 0.28, detail, MUTED, sz=6.2)
 
-# ── Footer ─────────────────────────────────────────────────────────────────────
+# ── Footer ────────────────────────────────────────────────────────────────────
 hline(0.68)
-txt(0.6,  0.50, "MCP Hub  ·  Use Case 2  ·  Doc Upload uses 3-4 GPT-4o calls for full AI extraction", DIM, sz=6.5, ha="left")
-txt(W - 0.6, 0.50, "LLM stages highlighted in amber", DIM, sz=6.5, ha="right")
+txt(0.6,  0.46, "v2  ·  Smart Chunking  ·  Type A (structured) = 0 LLM calls for parsing  ·  Type B (unstructured) = parallel targeted extraction", DIM, sz=6.2, ha="left")
+txt(W-0.6, 0.46, "LLM stages in amber  ·  No-LLM stages in green", DIM, sz=6.2, ha="right")
 
 out = os.path.join(os.path.dirname(__file__), "usecase2_doc_upload.png")
 plt.savefig(out, dpi=200, bbox_inches="tight", facecolor=BG, edgecolor="none")

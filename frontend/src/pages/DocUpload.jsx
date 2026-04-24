@@ -1,19 +1,18 @@
 import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import { agentApi } from "../lib/api";
 import Spinner from "../components/Spinner";
 import { useLanguage } from "../context/LanguageContext";
+import { useUpload } from "../context/UploadContext";
 
 const SUPPORTED = [".yaml", ".yml", ".json", ".txt", ".md", ".pdf"];
 
 export default function DocUpload() {
   const { t } = useLanguage();
+  const { beginUpload, sessionReady, uploadFailed } = useUpload();
   const [file,     setFile]     = useState(null);
   const [dragging, setDragging] = useState(false);
-  const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(null);
   const inputRef  = useRef(null);
-  const navigate  = useNavigate();
 
   function onDrop(e) {
     e.preventDefault();
@@ -25,15 +24,23 @@ export default function DocUpload() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!file) return;
-    setLoading(true);
     setError(null);
+
+    // Capture file ref before clearing state
+    const fileToUpload = file;
+
+    // ① Show overlay IMMEDIATELY — freezes all pages before the HTTP call starts
+    beginUpload(fileToUpload.name);
+    setFile(null);
+
     try {
-      const session = await agentApi.startUpload(file);
-      navigate(`/validate/${session.id}`);
+      // ② HTTP call — may take 10–30 s for large docs / LLM pipeline
+      const session = await agentApi.startUpload(fileToUpload);
+      // ③ Session id ready — transition overlay to pipeline stage checklist + polling
+      sessionReady(session.id, fileToUpload.name);
     } catch (err) {
+      uploadFailed();
       setError(err.response?.data?.detail || t("Upload failed. Please try again."));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -110,11 +117,8 @@ export default function DocUpload() {
           </div>
         )}
 
-        <button type="submit" disabled={loading || !file} className="btn-primary w-full py-2.5">
-          {loading
-            ? <><Spinner size={14} /> {t("Parsing document…")}</>
-            : <>{t("Parse & Generate Schema")} <ArrowIcon /></>
-          }
+        <button type="submit" disabled={!file} className="btn-primary w-full py-2.5">
+          {t("Parse & Generate Schema")} <ArrowIcon />
         </button>
       </form>
 

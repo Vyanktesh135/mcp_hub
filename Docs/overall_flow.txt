@@ -11,22 +11,32 @@ Non LLM -
   3. SchemaValidator
   4. API Saver
 
-
+**********************************************************************************************
+************************************ 
+**********************************************************************************************
 
 Case 1 - With Document submission
   
   input_classifier[DOC/Manual(chat)] (raw_input) --> LLM - ParsingAgent (Parse details into Raw API) --> LLM - SchemaAgent (Generating API in proper format) --> LLM - ConfidenceAgent (Depends on whatever data is generate) --> HITL --> SchemaValidator (Validate schema format is correct with all details required) --> LLM - API Testing (Validate if API is Reachable) --> API Saver 
+
+      
+      ****************************************************************************************************
 
 Case 2 - With chatbuilder
 
   input_classifier [DOC/Manual(chat)] (raw_input) --> LLM - Schema Agent --> LLM- confidenceAgent --> HITL --> SchemaValidator -->
   LLM - API-Testing --> API-saver 
 
+      ****************************************************************************************************
+
 Case - How chat works
   Connect (Activate tools in DB) --> Message sent (Check relevancy of question and find out related tool and send the list to LLM) --> LLM- takes the relevant tools and find out which we should use for it --> Tool execution (check required Param --> Decrypts Creds if applicable --> Make actual call --> get response store in DB) --> LLM - Answer synthesis(question needs multiple tool calls — e.g. "Compare weather in Tokyo and London" — GPT-4o may call the weather tool twice in
    sequence. Each call goes through steps 3→4→5 again. The loop caps at 5 to prevent infinite tool chaining.) 
 
 
+**********************************************************************************************
+************************************ 
+**********************************************************************************************
 Agent ① — input_classifier
     File: agents/input_classifier.pyinput_classifier
     Its only job is to figure out what kind of input arrived and make it readable.input_classifier
@@ -45,37 +55,39 @@ Agent ① — input_classifier
     Safety guard: If the content is longer than 60,000 characters (~15k tokens), it truncates and appends a note: "[NOTE: Contentinput_classifier
     truncated... Extract endpoints from the visible portion.]" — so the next agent never hits OpenAI's context window limit.
 
-Step 2: Parsing the content (Giving details to LLM)
-    Agent ② — ParsingAgent
-      File: agents/parsing_agent.py
+************************************ 
+Agent ② — ParsingAgent
+  File: agents/parsing_agent.py
 
-      Makes the first GPT-4o call. Takes the raw text (a chat message, a YAML file, a PDF) and extracts raw API structure from it.
+  Makes the first GPT-4o call. Takes the raw text (a chat message, a YAML file, a PDF) and extracts raw API structure from it.
 
-      System prompt instructs GPT-4o to return this exact shape:
+  System prompt instructs GPT-4o to return this exact shape:
+  {
+    "base_url": "...",
+    "auth_type": "BEARER | API_KEY | BASIC | NONE | UNKNOWN",
+    "endpoints": [
       {
-        "base_url": "...",
-        "auth_type": "BEARER | API_KEY | BASIC | NONE | UNKNOWN",
-        "endpoints": [
-          {
-            "path": "/resource/{id}",
-            "method": "GET",
-            "name": "snake_case_name",
-            "description": "...",
-            "parameters": [
-              { "name": "city", "type": "string", "required": true, "location": "query", "description": "..." }
-            ],
-            "response_example": {}
-          }
-        ]
+        "path": "/resource/{id}",
+        "method": "GET",
+        "name": "snake_case_name",
+        "description": "...",
+        "parameters": [
+          { "name": "city", "type": "string", "required": true, "location": "query", "description": "..." }
+        ],
+        "response_example": {}
       }
+    ]
+  }
 
-      Critical rules baked into the prompt:
-      - POST/PUT/PATCH body fields are the most commonly missed — explicitly told to never skip them
-      - Path params like {id} must appear with "location": "path", "required": true
-      - Only mark required: true if the docs explicitly say it
-      - Use null for unknowns, never invent data
+  Critical rules baked into the prompt:
+  - POST/PUT/PATCH body fields are the most commonly missed — explicitly told to never skip them
+  - Path params like {id} must appear with "location": "path", "required": true
+  - Only mark required: true if the docs explicitly say it
+  - Use null for unknowns, never invent data
 
-      Output saved to: session.extracted_schema
+  Output saved to: session.extracted_schema
+
+************************************ 
 
 Agent ③ — SchemaAgent
 
@@ -116,6 +128,7 @@ Agent ③ — SchemaAgent
 
   Output saved to: session.draft_api
 
+************************************ 
 ---
   Agent ④ — ConfidenceAgent
 
@@ -148,7 +161,7 @@ Agent ③ — SchemaAgent
 
   Output saved to: session.confidence_map → pipeline pauses → state = HITL_PENDING
 
-
+************************************ 
 Agent ⑤ — HITL (Human Review) — Not an agent, it's a pause
 
   No code runs here. The pipeline stops. The frontend polls GET /api/agent/{id} every 1.8 seconds, detects HITL_PENDING, and renders
@@ -176,6 +189,28 @@ Agent ⑤ — HITL (Human Review) — Not an agent, it's a pause
   If any errors: session.validation_errors = [...], state reverts to HITL_PENDING — the form reopens showing the errors. Also
   promotes final_api → draft_api so the user sees their last submission, not the original LLM output.
 
+************************************ 
+Agent ⑥ — SchemaValidator
+
+  File: agents/schema_validator.py
+
+  No LLM call. Pure Python rule-based validation on final_api. Collects all errors before returning (doesn't stop at first).
+
+  Rules checked:
+  1. api.name is not empty
+  2. api.base_url is not empty
+  3. base_url parses as http:// or https://
+  4. endpoints list is not empty
+  5. For each endpoint:
+     - path starts with "/"
+     - method in {GET, POST, PUT, DELETE, PATCH}
+     - name is not empty
+     - auth_type in {BEARER, API_KEY, BASIC, OAUTH2, NONE}
+
+  If any errors: session.validation_errors = [...], state reverts to HITL_PENDING — the form reopens showing the errors. Also
+  promotes final_api → draft_api so the user sees their last submission, not the original LLM output
+
+*********************************** 
  Agent ⑦ — ApiTestAgent
 
   File: agents/api_test_agent.py
@@ -247,3 +282,159 @@ Agent ⑤ — HITL (Human Review) — Not an agent, it's a pause
   else:                                  use same creds for every endpoint
 
   Final state: session.api_definition_id = definition.id, session.state = "SAVED"
+
+
+**********************************************************************************************
+************************************ 
+**********************************************************************************************
+ User types message
+          ↓
+  ┌─────────────────────────────────────┐
+  │  CONTEXT LAYER                      │
+  │  - Creates/loads session            │
+  │  - Builds system prompt             │
+  │    (who you are, which APIs,        │
+  │     today's date, guidelines)       │
+  │  - Injects conversation history     │
+  └─────────────────────────────────────┘
+          ↓
+     GPT-4o Call #1
+     (sees full context + tools)
+          ↓
+     Does GPT-4o want to call tools?
+          │
+     NO ──┴──► Return answer directly
+          │
+         YES
+          ↓
+  ┌─────────────────────────────────────┐
+  │  ORCHESTRATOR                       │
+  │  - Runs all tool calls in PARALLEL  │
+  │  - Retries failed calls (2x)        │
+  │  - Isolates failures                │
+  └─────────────────────────────────────┘
+          ↓
+     Real HTTP calls to external APIs
+          ↓
+     Results fed back to GPT-4o
+          ↓
+     GPT-4o Call #2
+     (synthesizes final answer)
+          ↓
+  ┌─────────────────────────────────────┐
+  │  CONTEXT LAYER (save)               │
+  │  - Saves full turn to session       │
+  │  - Next message sees this history   │
+  └─────────────────────────────────────┘
+          ↓
+     Response + session_id → Frontend
+
+**********************************************************************************************
+************************************ 
+**********************************************************************************************
+ Data model additions:
+  User:
+  + chat_status: "none" | "pending" | "approved" | "rejected"
+  + credits: Decimal  ← USD balance (e.g. 5.00 = $5.00)
+
+  New table — token_usage:
+    user_id, prompt_tokens, completion_tokens, cost_usd, created_at
+
+  Flow:
+  User clicks "Request Access"
+          ↓
+  POST /api/chat-access/request  →  chat_status = "pending"
+          ↓
+  Admin sees request in Admin panel → Approve / Reject
+          ↓
+  Admin tops up credits (e.g. $5.00)
+          ↓
+  User can now chat — each request deducts tokens × GPT-4o price
+          ↓
+  Block when credits = 0 (show "out of credits" message)
+
+  What gets built:
+
+  ┌───────────────┬────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │     Area      │                                            Changes                                             │
+  ├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Backend       │ chat_status + credits on User, TokenUsage model, access request routes, enforce in chat router │
+  ├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Admin panel   │ New "Chat Access" tab — pending requests, approve/reject, top up credits                       │
+  ├───────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ MCP Chat page │ Request access button → pending state → approved with credit balance shown                     │
+  └───────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  GPT-4o cost formula:
+  cost = (prompt_tokens × $2.50 + completion_tokens × $10.00) / 1,000,000
+
+
+
+
+**********************************************************************************************
+************************************ 
+**********************************************************************************************
+
+ User uploads file (PDF / DOCX / JSON / YAML / TXT / Postman)
+                          │
+                          ▼
+              ┌─ InputClassifier ─────────────┐
+              │  Detects: file exists → DOC   │
+              │  Sets mode = "DOC"            │
+              └───────────────────────────────┘
+                          │
+                          ▼
+              ┌─ doc_extractor.py ────────────────────────────────┐
+              │  PDF    → pypdf → plain text                      │
+              │  DOCX   → python-docx → plain text               │
+              │  JSON   → detect OpenAPI / Postman / generic      │
+              │  YAML   → convert to JSON → detect format        │
+              │  TXT/MD → read as-is                             │
+              │                                                   │
+              │  Returns: (text, format)                          │
+              └───────────────────────────────────────────────────┘
+                          │
+              ┌───────────┴──────────────────────┐
+              │                                  │
+       format = openapi / postman         format = text (PDF/DOCX/TXT)
+              │                                  │
+              ▼                                  ▼
+    ┌─ Option A ──────────────┐       ┌─ Option C (2-pass) ───────────────────┐
+    │  Parse structure        │       │                                       │
+    │  directly — no LLM      │       │  Pass 1 (1 LLM call):                 │
+    │                         │       │  Send full text → extract index       │
+    │  OpenAPI:               │       │  [ {method, path}, ... ]              │
+    │  iterate spec.paths     │       │  + base info (name, base_url, auth)   │
+    │  → 1 chunk per          │       │                                       │
+    │    {method + path}      │       │  Pass 2 (parallel LLM calls):         │
+    │                         │       │  For each endpoint in index:          │
+    │  Postman:               │       │  · Find text section (regex window)   │
+    │  iterate items          │       │  · 1 LLM call → full definition       │
+    │  → 1 chunk per request  │       │  All run in parallel                  │
+    └─────────────────────────┘       └───────────────────────────────────────┘
+              │                                  │
+              └───────────┬──────────────────────┘
+                          │
+                 [EndpointChunk list]
+                 each chunk = { method, path, content }
+                 one chunk = one endpoint = no boundary overlap
+                          │
+                          ▼
+              ┌─ SchemaAgent ─────────────────────────────────────┐
+              │  Parallel LLM calls (1 per endpoint + 1 for meta) │
+              │                                                   │
+              │  ┌─ meta call ──┐  ┌─ ep1 ─┐ ┌─ ep2 ─┐ ┌─ epN ─┐│
+              │  │ name         │  │ clean │ │ clean │ │ clean ││
+              │  │ base_url     │  │ schema│ │ schema│ │ schema ││
+              │  │ auth_type    │  └───────┘ └───────┘ └───────┘│
+              │  └──────────────┘                               │
+              │  Max 2048 tokens per call — never truncates      │
+              │  Merge all → draft_api                          │
+              └───────────────────────────────────────────────────┘
+                          │
+                          ▼
+                    HITL_PENDING
+              (user reviews + edits draft)
+                          │
+                          ▼
+              Validate → API Test → Save → Registry

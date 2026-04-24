@@ -2,6 +2,9 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { useAuth } from "./context/AuthContext";
+import { UploadProvider, useUpload } from "./context/UploadContext";
+import UploadOverlay from "./components/UploadOverlay";
+import UploadToast from "./components/UploadToast";
 
 const NAV_SECTIONS = [
   {
@@ -37,7 +40,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AppShell />
+        <UploadProvider>
+          <AppShell />
+        </UploadProvider>
       </LanguageProvider>
     </ThemeProvider>
   );
@@ -52,6 +57,9 @@ function AppShell() {
           <Outlet />
         </div>
       </main>
+      {/* Global upload UI — rendered outside main so they overlay everything */}
+      <UploadOverlay />
+      <UploadToast />
     </div>
   );
 }
@@ -59,6 +67,7 @@ function AppShell() {
 function Sidebar() {
   const { t } = useLanguage();
   const { user, logout } = useAuth();
+  const { hasActiveBackground } = useUpload();
   const navigate = useNavigate();
 
   function handleLogout() {
@@ -106,7 +115,10 @@ function Sidebar() {
                     }
                   >
                     <Icon />
-                    {t(labelKey)}
+                    <span className="flex-1">{t(labelKey)}</span>
+                    {to === "/create/upload" && hasActiveBackground && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" title="Upload in progress" />
+                    )}
                   </NavLink>
                 </li>
               ))}

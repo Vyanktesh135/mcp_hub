@@ -1,6 +1,14 @@
 """
-MCP Hub — Professional System Architecture Diagram
+MCP Hub — System Architecture v2
 Renders to: Docs/images/01_system_architecture.png
+
+Changes from v1:
+  - Social OAuth2 (Google + GitHub) with OTP 2FA
+  - Subscription system: chat_status, credits, admin approval
+  - Smart Chunking: Type A (no LLM) + Type B (2-pass LLM)
+  - token_usage DB table
+  - GPT-4o Engine with Subscription Gate + cost formula
+  - /api/subscription router
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -8,33 +16,32 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 import os
 
-# ── Canvas ─────────────────────────────────────────────────────────────────────
-W, H = 24, 17
-BG = "#f6f8fa"
+W, H = 30, 30
+BG   = "#f6f8fa"
 
-# ── Palette ────────────────────────────────────────────────────────────────────
 C = {
-    "user":     {"bg": "#ffffff", "bd": "#94a3b8", "hi": "#1e293b", "lo": "#64748b"},
-    "frontend": {"bg": "#eff6ff", "bd": "#3b82f6", "hi": "#1d4ed8", "lo": "#2563eb"},
-    "backend":  {"bg": "#f0fdf4", "bd": "#16a34a", "hi": "#14532d", "lo": "#166534"},
-    "agent":    {"bg": "#f5f3ff", "bd": "#7c3aed", "hi": "#4c1d95", "lo": "#6d28d9"},
-    "utils":    {"bg": "#fff1f2", "bd": "#e11d48", "hi": "#881337", "lo": "#be123c"},
-    "external": {"bg": "#fffbeb", "bd": "#d97706", "hi": "#78350f", "lo": "#92400e"},
-    "db":       {"bg": "#f0f9ff", "bd": "#0284c7", "hi": "#0c4a6e", "lo": "#0369a1"},
-    "mw":       {"bg": "#dcfce7", "bd": "#16a34a", "hi": "#14532d", "lo": "#166534"},
-    "comp_fe":  {"bg": "#dbeafe", "bd": "#93c5fd", "hi": "#1e40af", "lo": "#2563eb"},
-    "comp_be":  {"bg": "#dcfce7", "bd": "#86efac", "hi": "#14532d", "lo": "#15803d"},
-    "comp_ag":  {"bg": "#ede9fe", "bd": "#c4b5fd", "hi": "#3b0764", "lo": "#6d28d9"},
-    "comp_ext": {"bg": "#fef3c7", "bd": "#fcd34d", "hi": "#451a03", "lo": "#92400e"},
-    "comp_db":  {"bg": "#e0f2fe", "bd": "#7dd3fc", "hi": "#0c4a6e", "lo": "#0369a1"},
-    "comp":     {"bg": "#f8fafc", "bd": "#cbd5e1", "hi": "#1e293b", "lo": "#64748b"},
-    "llm_tag":  {"bg": "#fef3c7", "bd": "#f59e0b", "hi": "#78350f", "lo": "#92400e"},
+    "frontend": {"bg": "#eff6ff", "bd": "#3b82f6", "hi": "#1e40af", "lo": "#dbeafe"},
+    "backend":  {"bg": "#f0fdf4", "bd": "#16a34a", "hi": "#14532d", "lo": "#dcfce7"},
+    "agent":    {"bg": "#f5f3ff", "bd": "#7c3aed", "hi": "#4c1d95", "lo": "#ede9fe"},
+    "llm":      {"bg": "#fef3c7", "bd": "#f59e0b", "hi": "#78350f", "lo": "#fde68a"},
+    "db":       {"bg": "#f0f9ff", "bd": "#0284c7", "hi": "#0c4a6e", "lo": "#e0f2fe"},
+    "external": {"bg": "#fffbeb", "bd": "#d97706", "hi": "#78350f", "lo": "#fef3c7"},
+    "green":    {"bg": "#f0fdf4", "bd": "#22c55e", "hi": "#14532d", "lo": "#dcfce7"},
+    "red":      {"bg": "#fef2f2", "bd": "#ef4444", "hi": "#7f1d1d", "lo": "#fecaca"},
+    "violet":   {"bg": "#fdf4ff", "bd": "#a855f7", "hi": "#581c87", "lo": "#f3e8ff"},
+    "comp_fe":  {"bg": "#dbeafe", "bd": "#93c5fd", "hi": "#1e40af", "lo": "#eff6ff"},
+    "comp_be":  {"bg": "#dcfce7", "bd": "#86efac", "hi": "#14532d", "lo": "#f0fdf4"},
+    "comp_ag":  {"bg": "#ede9fe", "bd": "#c4b5fd", "hi": "#4c1d95", "lo": "#f5f3ff"},
+    "comp_db":  {"bg": "#e0f2fe", "bd": "#7dd3fc", "hi": "#0c4a6e", "lo": "#f0f9ff"},
+    "comp_ext": {"bg": "#fef3c7", "bd": "#fcd34d", "hi": "#78350f", "lo": "#fffbeb"},
+    "comp":     {"bg": "#f8fafc", "bd": "#cbd5e1", "hi": "#1e293b", "lo": "#e2e8f0"},
+    "mw":       {"bg": "#dcfce7", "bd": "#16a34a", "hi": "#14532d", "lo": "#f0fdf4"},
 }
 TEXT  = "#0f172a"
 MUTED = "#475569"
 DIM   = "#94a3b8"
 
-fig = plt.figure(figsize=(W, H), facecolor=BG, dpi=200)
+fig = plt.figure(figsize=(W, H), facecolor=BG, dpi=180)
 ax  = fig.add_subplot(111, facecolor=BG)
 ax.set_xlim(0, W)
 ax.set_ylim(0, H)
@@ -42,7 +49,6 @@ ax.set_aspect("equal")
 ax.axis("off")
 fig.subplots_adjust(0, 0, 1, 1)
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def box(x, y, w, h, key="comp", lw=1.3, z=3, r=0.15):
     ax.add_patch(FancyBboxPatch(
@@ -52,240 +58,318 @@ def box(x, y, w, h, key="comp", lw=1.3, z=3, r=0.15):
         zorder=z, clip_on=False,
     ))
 
+
 def txt(x, y, s, color=TEXT, sz=7, w="normal", ha="center", va="center", z=10, mono=False):
     ax.text(x, y, s, color=color, fontsize=sz, fontweight=w,
             ha=ha, va=va, zorder=z, clip_on=False,
             fontfamily="monospace" if mono else "sans-serif")
 
-def section_label(x, y, w, h, key, title, subtitle=""):
-    txt(x + 0.35, y + h - 0.32, title,
-        C[key]["hi"], sz=8.5, w="bold", ha="left", z=8)
-    if subtitle:
-        txt(x + len(title) * 0.20 + 0.55, y + h - 0.32, subtitle,
-            C[key]["lo"], sz=7.5, ha="left", z=8)
 
-def arrow(x1, y1, x2, y2, color=DIM, lw=1.3, style="->", dash=False):
-    props = dict(arrowstyle=style, color=color, lw=lw, mutation_scale=10)
+def arrow(x1, y1, x2, y2, color=DIM, lw=1.3, dash=False):
+    props = dict(arrowstyle="->", color=color, lw=lw, mutation_scale=10)
     if dash:
         props["linestyle"] = "dashed"
     ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
                 arrowprops=props, zorder=6, annotation_clip=False)
 
+
+def bidirectional(x1, y1, x2, y2, color=DIM, lw=1.2):
+    ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                arrowprops=dict(arrowstyle="<->", color=color, lw=lw, mutation_scale=10),
+                zorder=6, annotation_clip=False)
+
+
 def hline(y, color="#cbd5e1", lw=0.8):
-    ax.plot([0.5, W - 0.5], [y, y], color=color, lw=lw, zorder=1)
+    ax.plot([0.4, W - 0.4], [y, y], color=color, lw=lw, zorder=1)
+
+
+def step_badge(x, y, n, color):
+    ax.add_patch(FancyBboxPatch((x - 0.22, y - 0.22), 0.44, 0.44,
+        boxstyle="round,pad=0,rounding_size=0.1",
+        fc=color, ec="none", zorder=15, clip_on=False))
+    ax.text(x, y, str(n), color="white", fontsize=6.5, fontweight="bold",
+            ha="center", va="center", zorder=16, clip_on=False)
+
+
+def llm_tag(x, y, label="GPT-4o"):
+    box(x, y, 1.45, 0.32, "llm", lw=0.5, z=9, r=0.06)
+    txt(x + 0.72, y + 0.16, label, C["llm"]["hi"], sz=5.5, w="bold")
+
+
+def mini_tag(x, y, label, key):
+    box(x, y, 1.3, 0.28, key, lw=0.4, z=9, r=0.05)
+    txt(x + 0.65, y + 0.14, label, C[key]["hi"], sz=5, w="bold")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TITLE
 # ══════════════════════════════════════════════════════════════════════════════
-txt(W / 2, 16.55, "MCP HUB", TEXT, sz=24, w="bold", mono=True)
-txt(W / 2, 16.10, "System Architecture", MUTED, sz=12)
-hline(15.80)
+txt(W / 2, 29.55, "MCP HUB  —  SYSTEM ARCHITECTURE  v2", TEXT, sz=17, w="bold", mono=True)
+txt(W / 2, 29.0,  "OAuth2 (Google + GitHub)  ·  OTP 2FA  ·  Smart Chunking (Type A + B)  ·  Subscription & Credits  ·  GPT-4o Tool Engine", MUTED, sz=8.5)
+hline(28.7)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# USER
+# FRONTEND  y=26.2–28.4
 # ══════════════════════════════════════════════════════════════════════════════
-bx, by, bw, bh = 9.0, 14.88, 6.0, 0.72
-box(bx, by, bw, bh, "user", lw=1.0, z=3, r=0.12)
-txt(bx + bw / 2, by + 0.48, "Browser / User", C["user"]["hi"], sz=9, w="bold")
-txt(bx + bw / 2, by + 0.22, "Initiates all interactions via React SPA", C["user"]["lo"], sz=7)
+FX, FY, FW, FH = 0.4, 26.2, 29.2, 2.2
+box(FX, FY, FW, FH, "frontend", lw=1.8, z=2, r=0.22)
+txt(FX + 0.4, FY + FH - 0.28, "FRONTEND  ·  React 18 + Vite + Tailwind + Axios",
+    C["frontend"]["hi"], sz=8.5, w="bold", ha="left", z=8)
 
-arrow(12, by, 12, by - 0.38, DIM)
-txt(12.3, by - 0.18, "HTTPS", DIM, sz=5.5, ha="left")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FRONTEND
-# ══════════════════════════════════════════════════════════════════════════════
-fx, fy, fw, fh = 0.4, 12.2, 23.2, 2.45
-box(fx, fy, fw, fh, "frontend", lw=1.8, z=2, r=0.22)
-section_label(fx, fy, fw, fh, "frontend", "FRONTEND", "·  React + Vite  ·  localhost:5173")
-
-pages = [
-    ("Auth Pages",       "/login  ·  /register"),
-    ("Chat Builder",     "/create/chat"),
-    ("Doc Upload",       "/create/upload"),
-    ("HITL Validator",   "/validate/:id"),
-    ("Registry",         "/registry"),
-    ("ChatGPT Hub",      "/chatgpt"),
-    ("Monitor",          "/monitor"),
-    ("Admin",            "/admin"),
+# 4 page groups
+groups = [
+    ("Authentication",
+     ["Login — 2-step OTP", "Register", "AuthCallback (OAuth)", "Social buttons (Google/GitHub)"]),
+    ("API Creation",
+     ["ChatBuilder (NL chat)", "DocUpload (file upload)", "HITLValidator (review)", "Confidence dots"]),
+    ("GPT-4o Chat Hub",
+     ["ChatGPTHub", "AccessGate (none/pending/rejected)", "NoCreditsGate", "Credit balance card"]),
+    ("Management",
+     ["Registry", "Monitor", "Admin — Users tab", "Admin — Chat Access tab"]),
 ]
-pw, ph = 2.72, 0.72
-pgap  = (fw - 0.3 - pw * 8) / 7
-py1   = fy + fh - 1.12
-for i, (name, path) in enumerate(pages):
-    px = fx + 0.15 + i * (pw + pgap)
-    box(px, py1, pw, ph, "comp_fe", lw=0.8, z=4, r=0.1)
-    txt(px + pw / 2, py1 + ph * 0.66, name,  "#1e3a5f", sz=7.5, w="bold")
-    txt(px + pw / 2, py1 + ph * 0.28, path,  DIM,       sz=6.5, mono=True)
+gw = (FW - 0.35) / 4
+for i, (title, items) in enumerate(groups):
+    gx = FX + 0.18 + i * gw
+    box(gx, FY + 0.14, gw - 0.12, FH - 0.52, "comp_fe", lw=0.7, z=4, r=0.09)
+    txt(gx + (gw - 0.12) / 2, FY + FH - 0.58, title, C["frontend"]["hi"], sz=7, w="bold")
+    for j, item in enumerate(items):
+        txt(gx + 0.18, FY + FH - 0.85 - j * 0.26, "· " + item, MUTED, sz=5.8, ha="left")
 
 # Context bar
-ctx_items = [
-    ("AuthContext",     "JWT · user · role"),
-    ("LanguageContext", "EN / JA  i18n"),
-    ("ThemeContext",    "dark / light"),
-    ("lib/api.js",      "Axios + JWT Bearer interceptor"),
+ctx = [
+    "AuthContext (JWT · user · role)",
+    "ThemeContext (dark/light)",
+    "LanguageContext (EN/JA)",
+    "api.js — Axios + JWT Bearer",
 ]
-ciw = (fw - 0.3 - 0.15 * 3) / 4
-for i, (n, d) in enumerate(ctx_items):
-    cix = fx + 0.15 + i * (ciw + 0.15)
-    box(cix, fy + 0.1, ciw, 0.5, "frontend", lw=0.5, z=4, r=0.07)
-    txt(cix + 0.2, fy + 0.38, n, C["frontend"]["hi"], sz=7,   w="bold", ha="left")
-    txt(cix + 0.2, fy + 0.18, d, DIM,                sz=6.5,            ha="left")
+ciw = (FW - 0.3) / len(ctx)
+for i, c in enumerate(ctx):
+    cix = FX + 0.15 + i * ciw
+    box(cix, FY + 0.0, ciw - 0.06, 0.1, "frontend", lw=0.3, z=3, r=0.04)
+    # just inline text
+txt(FX + FW / 2, FY + 0.06, "  ·  ".join(ctx), C["frontend"]["hi"], sz=6, ha="center")
 
-arrow(12, fy, 12, fy - 0.32, C["frontend"]["bd"])
-txt(12.3, fy - 0.15, "REST + JWT Bearer", DIM, sz=5.5, ha="left")
+bidirectional(W / 2, FY, W / 2, FY - 0.28, C["frontend"]["bd"])
+txt(W / 2 + 0.2, FY - 0.14, "HTTP REST + JWT Bearer", DIM, sz=6, ha="left")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BACKEND
+# BACKEND  y=11.5–25.7
 # ══════════════════════════════════════════════════════════════════════════════
-bkx, bky, bkw, bkh = 0.4, 9.85, 23.2, 2.25
-box(bkx, bky, bkw, bkh, "backend", lw=1.8, z=2, r=0.22)
-section_label(bkx, bky, bkw, bkh, "backend", "BACKEND", "·  FastAPI  ·  localhost:8000")
+BKX, BKY, BKW, BKH = 0.4, 11.5, 29.2, 14.4
+box(BKX, BKY, BKW, BKH, "backend", lw=1.8, z=2, r=0.22)
+txt(BKX + 0.4, BKY + BKH - 0.3, "BACKEND  ·  FastAPI + SQLAlchemy + Python 3.13 + Alembic + Pydantic v2",
+    C["backend"]["hi"], sz=8.5, w="bold", ha="left", z=8)
 
 # Middleware banner
-box(bkx + 0.15, bky + bkh - 0.72, bkw - 0.3, 0.44, "mw", lw=0.6, z=4, r=0.08)
-mws = ["CORS Middleware", "SlowAPI Rate Limiting  (5–60 req/min)", "JWT Auth Guard", "Global Exception Handlers"]
-mw_w = (bkw - 0.3) / len(mws)
-for i, m in enumerate(mws):
-    txt(bkx + 0.15 + (i + 0.5) * mw_w, bky + bkh - 0.50, m, C["backend"]["hi"], sz=7, w="bold")
+box(BKX + 0.18, BKY + BKH - 0.74, BKW - 0.36, 0.38, "mw", lw=0.6, z=4, r=0.07)
+mw_items = ["CORS Middleware", "slowapi Rate Limiting (5–60 req/min)", "JWT Auth Guard (get_current_user)", "Global Exception Handlers"]
+mww = (BKW - 0.36) / len(mw_items)
+for i, m in enumerate(mw_items):
+    txt(BKX + 0.18 + (i + 0.5) * mww, BKY + BKH - 0.55, m, C["backend"]["hi"], sz=6.5, w="bold")
 
-# Router boxes
-routers = [
-    ("/api/auth",    "register · login · me\nadmin user management"),
-    ("/api/agent",   "chat · upload · manual\nhitl · confirm · list"),
-    ("/api/registry","list · get\ndelete"),
-    ("/api/chatgpt", "stats · connect · disconnect\nchat with GPT-4o tools"),
-    ("/api/monitor", "overview · active\nsessions · tool-calls"),
+# ── Routers  ──────────────────────────────────────────────────────────────────
+ROUTERS = [
+    ("/api/auth",       "register · login (OTP step 1)\nverify-otp · me\nadmin: users · role · active"),
+    ("/api/auth OAuth", "GET /google → redirect\nGET /google/callback → JWT\nGET /github → callback\nemail fallback /user/emails"),
+    ("/api/agent",      "POST manual · chat · upload\nGET /{id} poll state\nPOST /{id}/hitl · confirm"),
+    ("/api/chatgpt",    "POST connect · DELETE disconnect\nGET registry · tools\nPOST chat (agentic)\nGET stats"),
+    ("/api/subscription", "POST request · GET status\nadmin: requests · all-users\napprove · reject · top-up"),
+    ("/api/registry\n/api/monitor", "registry: list · get · delete\nmonitor: overview · active\nsessions · tool-calls · pipeline"),
 ]
-rw2 = (bkw - 0.3 - 0.2 * 4) / 5
-for i, (route, desc) in enumerate(routers):
-    rx2 = bkx + 0.15 + i * (rw2 + 0.2)
-    box(rx2, bky + 0.14, rw2, 1.1, "comp_be", lw=0.9, z=4, r=0.1)
-    txt(rx2 + rw2 / 2, bky + 0.14 + 0.80, route, C["backend"]["hi"], sz=7.5, w="bold", mono=True)
-    txt(rx2 + rw2 / 2, bky + 0.14 + 0.40, desc,  MUTED,              sz=6.5)
+rw = (BKW - 0.36 - 0.15 * 5) / 6
+ry = BKY + BKH - 2.0
+rh = 1.15
+for i, (route, desc) in enumerate(ROUTERS):
+    rx = BKX + 0.18 + i * (rw + 0.15)
+    key = "violet" if "OAuth" in route else ("violet" if "subscription" in route else "comp_be")
+    box(rx, ry, rw, rh, key, lw=0.9, z=4, r=0.1)
+    txt(rx + rw / 2, ry + rh - 0.22, route, C["backend"]["hi"], sz=6.5, w="bold", mono=True)
+    txt(rx + rw / 2, ry + rh * 0.42,  desc,  MUTED,              sz=5.8,            mono=False)
 
-# Arrows leaving backend
-for ax_x in [5.5, 12.0, 16.0, 21.5]:
-    arrow(ax_x, bky, ax_x, bky - 0.30, C["backend"]["bd"])
+# ── Agent Pipeline  ───────────────────────────────────────────────────────────
+APX, APY, APW, APH = BKX + 0.18, BKY + 4.8, BKW - 0.36, 6.4
+box(APX, APY, APW, APH, "agent", lw=1.4, z=3, r=0.15)
+txt(APX + 0.3, APY + APH - 0.28,
+    "AGENT PIPELINE  ·  Async State Machine  ·  INIT → CLASSIFYING → PARSING → SCHEMA → CONFIDENCE → HITL → VALIDATING → TESTING → SAVING → SAVED",
+    C["agent"]["hi"], sz=7, w="bold", ha="left", z=8)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# AGENT PIPELINE
-# ══════════════════════════════════════════════════════════════════════════════
-apx, apy, apw, aph = 0.4, 5.7, 13.8, 3.9
-box(apx, apy, apw, aph, "agent", lw=1.8, z=2, r=0.22)
-section_label(apx, apy, apw, aph, "agent", "AGENT PIPELINE", "·  Orchestrator  ·  8-stage state machine")
-
-stages = [
-    ("①", "CLASSIFY",   "InputClassifier",   False),
-    ("②", "PARSE",      "ParsingAgent",      False),
-    ("③", "SCHEMA",     "SchemaAgent",       True),
-    ("④", "CONFIDENCE", "ConfidenceAgent",   True),
-    ("⑤", "HITL",       "Human Review",      False),
-    ("⑥", "VALIDATE",   "SchemaValidator",   False),
-    ("⑦", "TEST",       "ApiTestAgent",      False),
-    ("⑧", "SAVE",       "ApiSaver",          False),
+STAGES = [
+    ("1", "InputClassifier",                    "CLASSIFYING",      "comp_ag", False,
+     "DOC vs CHAT\nfile_path or\nraw_input"),
+    ("2", "ParsingAgent\n+doc_extractor\n+smart_chunker", "PARSING", "comp_ag", False,
+     "Type A: OpenAPI\nPostman → 0 LLM\nType B: PDF/DOCX/TXT\n2-pass LLM extract"),
+    ("3", "SchemaAgent",                        "SCHEMA_GENERATING", "llm",    True,
+     "asyncio.gather()\n1 call per endpoint\n≤2048 tok each\n+ 1 meta call"),
+    ("4", "ConfidenceAgent",                    "CONFIDENCE_SCORING","llm",    True,
+     "Score 0–100 /field\nGREEN ≥70\nYELLOW 40–69\nRED <40"),
+    ("5", "HITL Pause",                         "HITL_PENDING",     "red",    False,
+     "PAUSE: human\nreview + edit\nfields · endpoints\nauth creds"),
+    ("6", "SchemaValidator",                    "VALIDATING",       "comp_ag", False,
+     "Rule-based only\nname · url · paths\nmethods · fields\nNo LLM"),
+    ("7", "ApiTestAgent",                       "API_TESTING",      "llm",    True,
+     "httpx live GET\nGPT-4o assess\nresponse quality\nstore results"),
+    ("8", "ApiSaver",                           "SAVING→SAVED",     "comp_ag", False,
+     "Fernet encrypt\ncreds · write\nApiDefinition\n+ ApiEndpoints"),
 ]
-stw = (apw - 0.3 - 0.12 * 7) / 8
-sth = 2.2
-sty = apy + 0.52
-for i, (num, name, cls, is_llm) in enumerate(stages):
-    sx = apx + 0.15 + i * (stw + 0.12)
-    key = "llm_tag" if is_llm else "comp_ag"
-    box(sx, sty, stw, sth, key, lw=0.9, z=4, r=0.1)
-    txt(sx + stw / 2, sty + sth * 0.88, num,  C["agent"]["hi"], sz=10,  w="bold")
-    txt(sx + stw / 2, sty + sth * 0.62, name, C["agent"]["hi"], sz=7,   w="bold")
-    txt(sx + stw / 2, sty + sth * 0.38, cls,  MUTED,            sz=6)
+sw = (APW - 0.3 - 0.1 * 7) / 8
+sh = APH - 0.72
+sy = APY + 0.18
+for i, (num, name, state, key, is_llm, detail) in enumerate(STAGES):
+    sx = APX + 0.15 + i * (sw + 0.1)
+    box(sx, sy, sw, sh, key, lw=0.9, z=5, r=0.1)
+    step_badge(sx + 0.22, sy + sh - 0.18, num, C["agent"]["bd"] if key != "red" else C["red"]["bd"])
+    txt(sx + sw / 2, sy + sh - 0.55, name,  C["agent"]["hi"] if key not in ("llm","red") else C[key]["hi"], sz=6.3, w="bold")
+    txt(sx + sw / 2, sy + sh - 0.88, state, C["agent"]["bd"] if key not in ("llm","red") else C[key]["bd"], sz=5.5, mono=True)
+    txt(sx + sw / 2, sy + sh * 0.38, detail, MUTED, sz=5.5)
     if is_llm:
-        box(sx + stw * 0.12, sty + 0.1, stw * 0.76, 0.44, "external", lw=0.5, z=5, r=0.07)
-        txt(sx + stw / 2, sty + 0.32, "GPT-4o", C["external"]["hi"], sz=6.5, w="bold")
-    if i < len(stages) - 1:
-        ax.annotate("", xy=(sx + stw + 0.12, sty + sth / 2),
-                    xytext=(sx + stw, sty + sth / 2),
-                    arrowprops=dict(arrowstyle="->", color=C["agent"]["lo"], lw=0.7),
+        llm_tag(sx + sw * 0.07, sy + 0.08)
+    if i < len(STAGES) - 1:
+        ax.annotate("", xy=(sx + sw + 0.1, sy + sh / 2),
+                    xytext=(sx + sw, sy + sh / 2),
+                    arrowprops=dict(arrowstyle="->", color=C["agent"]["lo"], lw=0.6),
                     zorder=7, annotation_clip=False)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# UTILITIES
-# ══════════════════════════════════════════════════════════════════════════════
-utx, uty, utw, uth = 14.5, 5.7, 4.0, 3.9
-box(utx, uty, utw, uth, "utils", lw=1.8, z=2, r=0.22)
-section_label(utx, uty, utw, uth, "utils", "UTILITIES", "")
+# ── GPT-4o Engine  ────────────────────────────────────────────────────────────
+GEX, GEY, GEW, GEH = BKX + 0.18, BKY + 0.8, BKW - 0.36, 3.8
+box(GEX, GEY, GEW, GEH, "llm", lw=1.4, z=3, r=0.15)
+txt(GEX + 0.3, GEY + GEH - 0.28, "GPT-4o TOOL ENGINE  ·  ChatGPTHub Feature  ·  Subscription Gate (v2)",
+    C["llm"]["hi"], sz=7.5, w="bold", ha="left", z=8)
 
-util_items = [
-    ("auth.py",        "JWT creation · bcrypt verify\nrequire_admin dependency"),
-    ("encryption.py",  "Fernet symmetric encrypt\nSHA-256 key derivation"),
-    ("limiter.py",     "SlowAPI instance\nper-route rate limits"),
-    ("translator.py",  "api_to_tools()\nresolve_tool_call()"),
+gw3 = (GEW - 0.3 - 0.2 * 2) / 3
+gpt_cards = [
+    ("Subscription Gate (v2)",
+     "chat_status: none/pending/\nrejected → 403\ncredits=0 → 402\nAdmins bypass"),
+    ("Context Layer",
+     "Per-session history\nSystem prompt from\nconnected APIs\nAuto-expire 2 h"),
+    ("Tool Orchestrator",
+     "ApiDefinition → OpenAI\ntool schema · parallel\nexecute + retry\nLog → tool_call_logs"),
 ]
-uiw = utw - 0.4
-uih = 0.74
-for i, (n, d) in enumerate(util_items):
-    uiy = uty + uth - 0.88 - i * (uih + 0.12)
-    box(utx + 0.2, uiy, uiw, uih, "comp", lw=0.6, z=4, r=0.09)
-    txt(utx + 0.38, uiy + uih * 0.72, n, C["utils"]["hi"], sz=7,   w="bold", ha="left", mono=True)
-    txt(utx + 0.38, uiy + uih * 0.32, d, MUTED,            sz=6.2,            ha="left")
+for i, (name, detail) in enumerate(gpt_cards):
+    gx = GEX + 0.15 + i * (gw3 + 0.2)
+    box(gx, GEY + 0.85, gw3, GEH - 1.06, "comp_ext", lw=0.8, z=5, r=0.1)
+    txt(gx + gw3 / 2, GEY + GEH - 0.50, name,   C["llm"]["hi"], sz=6.5, w="bold")
+    txt(gx + gw3 / 2, GEY + GEH - 1.05, detail, MUTED,          sz=5.8)
+
+# cost formula bar
+box(GEX + 0.15, GEY + 0.16, GEW - 0.3, 0.55, "comp", lw=0.5, z=5, r=0.07)
+txt(GEX + GEW / 2, GEY + 0.44,
+    "Cost: (prompt_tokens × $2.50 + completion_tokens × $10.00) / 1,000,000  ·  Deducted from User.credits after full loop  ·  Logged to token_usage",
+    C["llm"]["hi"], sz=6, w="bold", mono=True)
+
+# vertical arrows from routers → pipeline → gpt engine
+for ax_x in [2.5, 8.5, 14.0, 20.5, 26.0]:
+    arrow(ax_x, ry, ax_x, APY + APH, C["backend"]["lo"], lw=0.7)
+    arrow(ax_x, APY, ax_x, GEY + GEH, C["agent"]["lo"], lw=0.7)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# EXTERNAL SERVICES
+# CONNECTOR ARROWS
 # ══════════════════════════════════════════════════════════════════════════════
-ex, ey, ew, eh = 18.8, 5.7, 4.8, 3.9
-box(ex, ey, ew, eh, "external", lw=1.8, z=2, r=0.22)
-section_label(ex, ey, ew, eh, "external", "EXTERNAL SERVICES", "")
+# backend → DB (left)
+bidirectional(7.0, BKY, 7.0, BKY - 0.32, C["db"]["bd"])
+txt(7.4, BKY - 0.15, "SQL / ORM", DIM, sz=6, ha="left")
 
-# OpenAI
-box(ex + 0.2, ey + 1.85, ew - 0.4, 1.78, "comp_ext", lw=0.8, z=4, r=0.12)
-txt(ex + ew / 2, ey + 3.30, "OpenAI  —  GPT-4o", C["external"]["hi"], sz=8.5, w="bold")
-for j, line in enumerate(["Schema Generation  (stage 3)", "Confidence Scoring  (stage 4)", "Agentic Chat loop"]):
-    txt(ex + ew / 2, ey + 3.0 - j * 0.32, line, MUTED, sz=6.5)
-
-# External APIs
-box(ex + 0.2, ey + 0.18, ew - 0.4, 1.5, "comp_ext", lw=0.8, z=4, r=0.12)
-txt(ex + ew / 2, ey + 1.38, "External REST APIs", C["external"]["hi"], sz=8.5, w="bold")
-for j, line in enumerate(["Tool execution targets", "HTTP via httpx  ·  verify=False", "Basic / Bearer / API Key auth"]):
-    txt(ex + ew / 2, ey + 1.05 - j * 0.30, line, MUTED, sz=6.5)
-
-# Dashed connectors: Agent/chatgpt → External
-arrow(14.5, 8.1, 18.8, 7.8, C["external"]["lo"], lw=1.0, dash=True)
-txt(16.65, 8.15, "LLM calls", C["external"]["lo"], sz=5.5)
-arrow(14.5, 7.1, 18.8, 6.6, C["external"]["lo"], lw=1.0, dash=True)
-txt(16.65, 7.05, "HTTP tool calls", C["external"]["lo"], sz=5.5)
+# backend → External (right)
+bidirectional(23.0, BKY, 23.0, BKY - 0.32, C["external"]["bd"])
+txt(23.4, BKY - 0.15, "HTTPS", DIM, sz=6, ha="left")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATABASE
+# DATABASE  y=4.2–11.0  x=0.4–14.8
 # ══════════════════════════════════════════════════════════════════════════════
-dbx, dby, dbw, dbh = 0.4, 3.0, 23.2, 2.5
-box(dbx, dby, dbw, dbh, "db", lw=1.8, z=2, r=0.22)
-section_label(dbx, dby, dbw, dbh, "db", "DATABASE", "·  PostgreSQL  ·  SQLite (local dev)")
+DBX, DBY, DBW, DBH = 0.4, 4.2, 14.4, 7.0
+box(DBX, DBY, DBW, DBH, "db", lw=1.8, z=2, r=0.22)
+txt(DBX + 0.4, DBY + DBH - 0.28, "DATABASE  ·  PostgreSQL  /  SQLite (dev)  ·  Alembic migrations",
+    C["db"]["hi"], sz=8, w="bold", ha="left", z=8)
 
-tables = [
-    ("users",                "id · email · hashed_password\nrole · is_active · created_at"),
-    ("agent_sessions",       "state · draft_api · confidence_map\nhuman_edits · final_api · user_id"),
-    ("api_definitions",      "name · base_url · version\nvisibility · user_id · tags"),
-    ("api_endpoints",        "path · method · input_schema\noutput_schema · auth_credentials"),
-    ("chatgpt_connections",  "api_definition_id · user_id\nconnected_at · is_active"),
-    ("tool_call_logs",       "endpoint_name · arguments\nresult · success · called_at"),
+DB_TABLES = [
+    ("users",              "email · hashed_password(nullable)\nrole · is_active · auth_provider\nchat_status · credits(float)",  True),
+    ("agent_sessions",     "mode · state · user_id\nextracted_schema · draft_api\nconfidence_map · final_api",                  False),
+    ("api_definitions",    "name · base_url · version\nvisibility · tags · user_id\nsource_session_id",                         False),
+    ("api_endpoints",      "path · method · input_schema\noutput_schema · headers\nauth_credentials (encrypted)",               False),
+    ("chatgpt_connections","api_definition_id · user_id\nis_active · connected_at",                                             False),
+    ("tool_call_logs",     "endpoint_name · arguments\nresult (1000 char) · success\ncalled_at",                                False),
+    ("token_usage ★",     "user_id · session_id\nprompt/completion_tokens\ncost_usd · created_at",                             True),
+    ("auth_config",        "provider · client_id\nencrypted secrets\nredirect_uri",                                             False),
 ]
-dtw = (dbw - 0.3 - 0.2 * 5) / 6
-for i, (n, d) in enumerate(tables):
-    dx = dbx + 0.15 + i * (dtw + 0.2)
-    box(dx, dby + 0.15, dtw, 2.1, "comp_db", lw=0.8, z=4, r=0.1)
-    txt(dx + dtw / 2, dby + 0.15 + 1.76, n, C["db"]["hi"], sz=7.5, w="bold", mono=True)
-    txt(dx + dtw / 2, dby + 0.15 + 1.0,  d, MUTED,         sz=6.2)
+dtw = (DBW - 0.36 - 0.15 * 3) / 4
+dth = 1.45
+for i, (name, fields, is_new) in enumerate(DB_TABLES):
+    col = i % 4
+    row = i // 4
+    dx = DBX + 0.18 + col * (dtw + 0.15)
+    dy = DBY + DBH - 1.0 - row * (dth + 0.18) - dth
+    key = "violet" if is_new else "comp_db"
+    box(dx, dy, dtw, dth, key, lw=0.9, z=4, r=0.1)
+    txt(dx + dtw / 2, dy + dth - 0.28, name,   C["db"]["hi"], sz=6.5, w="bold", mono=True)
+    txt(dx + dtw / 2, dy + dth * 0.40, fields, MUTED,         sz=5.6)
 
-# Arrows into DB
-for ax_x in [5.5, 12.0, 16.0]:
-    arrow(ax_x, apy, ax_x, dby + 2.3, C["db"]["bd"])
+# ══════════════════════════════════════════════════════════════════════════════
+# EXTERNAL SERVICES  y=4.2–11.0  x=15.2–29.6
+# ══════════════════════════════════════════════════════════════════════════════
+EX, EY, EW, EH = 15.2, 4.2, 14.4, 7.0
+box(EX, EY, EW, EH, "external", lw=1.8, z=2, r=0.22)
+txt(EX + 0.4, EY + EH - 0.28, "EXTERNAL SERVICES",
+    C["external"]["hi"], sz=8, w="bold", ha="left", z=8)
+
+EXT_SERVICES = [
+    ("OpenAI GPT-4o",
+     "AsyncOpenAI SDK\nSchemaAgent (stage 3)\nConfidenceAgent (stage 4)\nApiTestAgent (stage 7)\nChatGPTHub agentic loop"),
+    ("Google OAuth2  ★",
+     "accounts.google.com/o/oauth2\nAuthorization code flow\nid_token → email decode\nfind_or_create user"),
+    ("GitHub OAuth2  ★",
+     "github.com/login/oauth\nAuthorization code flow\n/user/emails fallback\nfind_or_create user"),
+    ("SMTP Gmail  ★",
+     "Port 587 STARTTLS\nOTP email on login\n6-digit · 10-min expiry\n5-attempt OTPStore"),
+    ("User APIs (Testing)",
+     "httpx async client\nLive GET calls during\nApiTestAgent (stage 7)\nResponse → GPT-4o assess"),
+    ("Rate Limits",
+     "slowapi limiter\n/login: 5/min\n/register: 10/min\n/chat: 60/min"),
+]
+ew2 = (EW - 0.36 - 0.15 * 2) / 3
+eh2 = (EH - 0.72 - 0.15) / 2
+for i, (name, detail) in enumerate(EXT_SERVICES):
+    col = i % 3
+    row = i // 3
+    ex2 = EX + 0.18 + col * (ew2 + 0.15)
+    ey2 = EY + EH - 0.72 - row * (eh2 + 0.15) - eh2
+    is_new = "★" in name
+    key = "violet" if is_new else "comp_ext"
+    box(ex2, ey2, ew2, eh2, key, lw=0.9, z=4, r=0.1)
+    txt(ex2 + ew2 / 2, ey2 + eh2 - 0.28, name.replace("  ★",""), C["external"]["hi"], sz=6.5, w="bold")
+    txt(ex2 + ew2 / 2, ey2 + eh2 * 0.42, detail, MUTED, sz=5.7)
+    if is_new:
+        mini_tag(ex2 + ew2 - 1.4, ey2 + eh2 - 0.34, "v2", "violet")
+
+# dashed arrows: backend → external services
+for src_x, dst_x in [(14.5, 15.5), (14.5, 20.0), (14.5, 24.5)]:
+    arrow(src_x, 7.5, dst_x, 7.5, C["external"]["lo"], lw=0.8, dash=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FOOTER
 # ══════════════════════════════════════════════════════════════════════════════
-hline(2.78)
-txt(0.6,  2.58, "MCP Hub  ·  FastAPI + React + PostgreSQL + GPT-4o", DIM, sz=7, ha="left")
-txt(W - 0.6, 2.58, "System Architecture  v1.0", DIM, sz=7, ha="right")
+hline(3.9)
+txt(0.6, 3.65, "MCP Hub v2  ·  Smart Chunking (Type A + B)  ·  Social OAuth2  ·  OTP 2FA  ·  Subscription & Credits  ·  Fernet encrypted creds",
+    DIM, sz=6.5, ha="left")
+txt(W - 0.6, 3.65, "System Architecture  ·  2026-04-23", DIM, sz=6.5, ha="right")
+
+# ── Legend boxes ─────────────────────────────────────────────────────────────
+legend_items = [
+    ("Frontend",   "frontend"),
+    ("Backend",    "backend"),
+    ("Agents",     "agent"),
+    ("LLM/GPT-4o", "llm"),
+    ("Database",   "db"),
+    ("External",   "external"),
+    ("Type A / no LLM", "green"),
+    ("New in v2",  "violet"),
+]
+lx = 0.6
+for label, key in legend_items:
+    box(lx, 0.3, 2.5, 0.42, key, lw=0.8, z=5, r=0.06)
+    txt(lx + 1.25, 0.51, label, C[key]["hi"], sz=5.8, w="bold")
+    lx += 2.65
 
 # ── Save ───────────────────────────────────────────────────────────────────────
 out = os.path.join(os.path.dirname(__file__), "01_system_architecture.png")
-plt.savefig(out, dpi=150, bbox_inches="tight", facecolor=BG, edgecolor="none")
+plt.savefig(out, dpi=180, bbox_inches="tight", facecolor=BG, edgecolor="none")
 plt.close()
 print(f"Saved: {out}")

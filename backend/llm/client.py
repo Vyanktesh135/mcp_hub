@@ -37,7 +37,7 @@ async def chat_json(system: str, user: str, *, max_tokens: int = 2048) -> dict:
     """LLM call that enforces a JSON response. Returns parsed dict."""
     if settings.mock_llm:
         raw = _mock_response(user)
-        return json.loads(raw)
+        return _parse_json(raw)
 
     json_system = (
         system
@@ -55,7 +55,7 @@ async def chat_json(system: str, user: str, *, max_tokens: int = 2048) -> dict:
         ],
     )
     raw = response.choices[0].message.content or "{}"
-    return json.loads(raw)
+    return _parse_json(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -144,3 +144,34 @@ def _mock_response(prompt: str) -> str:
         })
 
     return json.dumps({"result": "ok"})
+
+
+def _parse_json(raw: str) -> dict:
+    """Parse JSON from LLM output, stripping markdown fences if present."""
+    text = raw.strip()
+
+    # Strip ```json ... ``` or ``` ... ``` fences
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        text = text.strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Response was truncated — find the last complete top-level object
+        brace_depth = 0
+        last_valid = 0
+        for i, ch in enumerate(text):
+            if ch == "{":
+                brace_depth += 1
+            elif ch == "}":
+                brace_depth -= 1
+                if brace_depth == 0:
+                    last_valid = i + 1
+        if last_valid:
+            try:
+                return json.loads(text[:last_valid])
+            except json.JSONDecodeError:
+                pass
+        raise

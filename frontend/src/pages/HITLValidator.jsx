@@ -271,6 +271,11 @@ export default function HITLValidator() {
   const isFailed    = session?.state === "FAILED";
   const isManual    = session?.mode === "MANUAL";
 
+  // Detect when auth type is required but no credentials have been filled in
+  const apiAuthType    = form?.auth_type || "none";
+  const credsEmpty     = !globalAuth.token && !globalAuth.password && !globalAuth.value && !globalAuth.client_secret;
+  const authWarning    = apiAuthType !== "none" && credsEmpty && authMode === "same";
+
   return (
     <div className="max-w-3xl animate-slide-up">
       {/* Header */}
@@ -286,6 +291,20 @@ export default function HITLValidator() {
           <Badge label={session?.state} variant={session?.state} />
         </div>
       </div>
+
+      {/* Auth credentials missing warning */}
+      {authWarning && (
+        <div className="mb-5 flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+          <span className="text-amber-400 text-base leading-none mt-0.5 flex-shrink-0">⚠</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-300">{t("Auth credentials missing")}</p>
+            <p className="text-xs text-amber-400/80 mt-0.5">
+              {t("This API uses")} <span className="font-mono font-semibold">{apiAuthType}</span>{" "}
+              {t("authentication but no credentials are set. Add them in the Authentication section below before confirming — otherwise the live endpoint test will return Auth Required.")}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Failed */}
       {isFailed && (
@@ -606,7 +625,7 @@ function SuccessPanel({ apiId, session, t }) {
       {/* Test results — always shown */}
       {testResults.length > 0 && (
         <div className="animate-slide-up">
-          <TestResultsPanel results={testResults} t={t} />
+          <TestResultsPanel results={testResults} sessionId={apiId} t={t} />
         </div>
       )}
 
@@ -727,7 +746,7 @@ function SavingSteps() {
 }
 
 /* ── Test Results panel (shown inside SuccessPanel) ── */
-function TestResultsPanel({ results, t }) {
+function TestResultsPanel({ results, sessionId, t }) {
   if (!results || results.length === 0) return null;
 
   const verdictStyle = {
@@ -738,11 +757,27 @@ function TestResultsPanel({ results, t }) {
     SKIPPED:       { dot: "bg-zinc-600",    text: "text-zinc-500",   label: t("Skipped") },
   };
 
+  const hasAuthRequired = results.some(r => r.verdict === "AUTH_REQUIRED");
+
   return (
     <div className="card p-4">
       <p className="section-label mb-3">
         {t("Live API Test Results")}
       </p>
+
+      {hasAuthRequired && (
+        <div className="mb-3 flex items-start gap-2.5 px-3 py-2.5 rounded-lg
+                        bg-amber-500/10 border border-amber-500/25">
+          <span className="text-amber-400 text-sm leading-none mt-0.5 flex-shrink-0">⚠</span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-amber-300">{t("Auth Required — endpoints need credentials")}</p>
+            <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
+              {t("The live test could not authenticate. To fix: re-upload the document and add credentials on the Review & Validate page before confirming, or update them in the API Registry.")}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         {results.map((r, i) => {
           const s = verdictStyle[r.verdict] || verdictStyle.WARNING;
