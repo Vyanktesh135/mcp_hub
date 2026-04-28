@@ -1,7 +1,11 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { useAuth } from "./context/AuthContext";
+import { UploadProvider, useUpload } from "./context/UploadContext";
+import UploadOverlay from "./components/UploadOverlay";
+import UploadToast from "./components/UploadToast";
 
 const NAV_SECTIONS = [
   {
@@ -31,34 +35,50 @@ const NAV_SECTIONS = [
   },
 ];
 
-const ADMIN_NAV = { to: "/admin", labelKey: "Admin", icon: ShieldIcon };
+const ADMIN_NAV = { to: "/admin", icon: ShieldIcon };
 
 export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AppShell />
+        <UploadProvider>
+          <AppShell />
+        </UploadProvider>
       </LanguageProvider>
     </ThemeProvider>
   );
 }
 
 function AppShell() {
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("sidebar_collapsed") === "true"
+  );
+
+  function toggleCollapse() {
+    setCollapsed(prev => {
+      localStorage.setItem("sidebar_collapsed", String(!prev));
+      return !prev;
+    });
+  }
+
   return (
     <div className="flex h-screen bg-zinc-950 overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-zinc-950">
+      <Sidebar collapsed={collapsed} onToggle={toggleCollapse} />
+      <main className="flex-1 overflow-y-auto bg-zinc-950 min-w-0">
         <div className="px-8 py-8 animate-fade-in">
           <Outlet />
         </div>
       </main>
+      <UploadOverlay />
+      <UploadToast />
     </div>
   );
 }
 
-function Sidebar() {
+function Sidebar({ collapsed, onToggle }) {
   const { t } = useLanguage();
   const { user, logout } = useAuth();
+  const { hasActiveBackground } = useUpload();
   const navigate = useNavigate();
 
   function handleLogout() {
@@ -66,28 +86,49 @@ function Sidebar() {
     navigate("/login");
   }
 
+  const navItemClass = (isActive) =>
+    `relative flex items-center rounded-lg transition-colors
+     ${collapsed ? "justify-center px-0 py-2.5 w-full" : "gap-2.5 px-2.5 py-2"}
+     ${isActive
+       ? "bg-blue-600/15 text-blue-300 font-medium border border-blue-500/20"
+       : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/70"}`;
+
+  const iconBtnClass =
+    "flex items-center justify-center w-full py-2.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors";
+
   return (
-    <aside className="w-56 flex-shrink-0 flex flex-col border-r border-zinc-800 bg-zinc-950">
+    <aside
+      className="flex-shrink-0 flex flex-col border-r border-zinc-800 bg-zinc-950 transition-[width] duration-200"
+      style={{ width: collapsed ? 48 : 224 }}
+    >
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-zinc-800">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm">
+      <div className="h-14 flex items-center border-b border-zinc-800 px-3 overflow-hidden">
+        {collapsed ? (
+          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm mx-auto flex-shrink-0">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path d="M3 8h10M8 3v10" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
             </svg>
           </div>
-          <div>
-            <span className="font-semibold text-zinc-100 text-sm tracking-tight">MCP Hub</span>
-            <span className="block text-[9px] text-zinc-600 uppercase tracking-widest -mt-0.5">middleware</span>
+        ) : (
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm flex-shrink-0">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M3 8h10M8 3v10" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <span className="font-semibold text-zinc-100 text-sm tracking-tight block">MCP Hub</span>
+              <span className="block text-[9px] text-zinc-600 uppercase tracking-widest -mt-0.5">middleware</span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
+      <nav className={`flex-1 ${collapsed ? "px-1.5" : "px-3"} py-4 overflow-y-auto`}>
         {NAV_SECTIONS.map((section, i) => (
-          <div key={i}>
-            {section.headingKey && (
+          <div key={i} className={collapsed ? "mb-1" : "mb-5"}>
+            {!collapsed && section.headingKey && (
               <p className="px-2 mb-1.5 text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">
                 {t(section.headingKey)}
               </p>
@@ -98,78 +139,136 @@ function Sidebar() {
                   <NavLink
                     to={to}
                     end={to === "/"}
-                    className={({ isActive }) =>
-                      `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors
-                       ${isActive
-                         ? "bg-blue-600/15 text-blue-300 font-medium border border-blue-500/20"
-                         : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/70"}`
-                    }
+                    title={collapsed ? t(labelKey) : undefined}
+                    className={({ isActive }) => navItemClass(isActive)}
                   >
                     <Icon />
-                    {t(labelKey)}
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 text-sm">{t(labelKey)}</span>
+                        {to === "/create/upload" && hasActiveBackground && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" title="Upload in progress" />
+                        )}
+                      </>
+                    )}
+                    {collapsed && to === "/create/upload" && hasActiveBackground && (
+                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                    )}
                   </NavLink>
                 </li>
               ))}
             </ul>
           </div>
         ))}
+
+        {/* Collapse toggle */}
+        <div className={`mt-2 pt-2 border-t border-zinc-800/60 ${collapsed ? "px-0" : ""}`}>
+          <button
+            onClick={onToggle}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={`${collapsed ? iconBtnClass : "flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors text-xs"}`}
+          >
+            {collapsed ? <ChevronRightIcon /> : <><ChevronLeftIcon /><span>Collapse</span></>}
+          </button>
+        </div>
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-zinc-800 space-y-1">
-        {/* Admin link */}
-        {user?.role === "admin" && (
-          <NavLink
-            to={ADMIN_NAV.to}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors mb-1
-               ${isActive
-                 ? "bg-amber-500/15 text-amber-300 font-medium border border-amber-500/20"
-                 : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/70"}`
-            }
-          >
-            <ShieldIcon />
-            <span className="text-xs">Admin</span>
-            <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-semibold uppercase tracking-wider">
-              admin
-            </span>
-          </NavLink>
-        )}
-
-        {/* User info + logout */}
-        {user && (
-          <div className="flex items-center justify-between px-2.5 py-2 rounded-lg mb-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-6 h-6 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-                <span className="text-[10px] font-semibold text-blue-400 uppercase">
-                  {user.email[0]}
-                </span>
+      <div className={`${collapsed ? "px-1.5" : "px-3"} py-3 border-t border-zinc-800`}>
+        {collapsed ? (
+          /* ── Collapsed footer: icons only ── */
+          <div className="flex flex-col items-center gap-1">
+            {user?.role === "admin" && (
+              <NavLink to="/admin" title="Admin" className={({ isActive }) =>
+                `${iconBtnClass} ${isActive ? "text-amber-300 bg-amber-500/10" : ""}`}>
+                <ShieldIcon />
+              </NavLink>
+            )}
+            {user && (
+              <div className="relative flex justify-center w-full py-2">
+                <div className="w-6 h-6 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center"
+                     title={user.email}>
+                  <span className="text-[10px] font-semibold text-blue-400 uppercase">{user.email[0]}</span>
+                </div>
               </div>
-              <span className="text-xs text-zinc-400 truncate">{user.email}</span>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Sign out"
-              className="ml-1 flex-shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors"
-            >
-              <LogoutIcon />
-            </button>
+            )}
+            {user && (
+              <button onClick={handleLogout} title="Sign out" className={iconBtnClass}>
+                <LogoutIcon />
+              </button>
+            )}
+            <CollapsedLangToggle />
+            <CollapsedThemeToggle />
+            <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer"
+               title="API Reference" className={iconBtnClass}>
+              <ApiIcon />
+            </a>
+          </div>
+        ) : (
+          /* ── Expanded footer ── */
+          <div className="space-y-1">
+            {user?.role === "admin" && (
+              <NavLink to={ADMIN_NAV.to}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors mb-1
+                   ${isActive
+                     ? "bg-amber-500/15 text-amber-300 font-medium border border-amber-500/20"
+                     : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/70"}`
+                }
+              >
+                <ShieldIcon />
+                <span className="text-xs">Admin</span>
+                <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-semibold uppercase tracking-wider">
+                  admin
+                </span>
+              </NavLink>
+            )}
+            {user && (
+              <div className="flex items-center justify-between px-2.5 py-2 rounded-lg mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-6 h-6 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[10px] font-semibold text-blue-400 uppercase">{user.email[0]}</span>
+                  </div>
+                  <span className="text-xs text-zinc-400 truncate">{user.email}</span>
+                </div>
+                <button onClick={handleLogout} title="Sign out"
+                  className="ml-1 flex-shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors">
+                  <LogoutIcon />
+                </button>
+              </div>
+            )}
+            <LanguageToggle />
+            <ThemeToggle />
+            <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer"
+               className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-zinc-600
+                          hover:text-zinc-400 hover:bg-zinc-800/60 transition-colors">
+              <ApiIcon />
+              {t("API Reference")}
+            </a>
           </div>
         )}
-        <LanguageToggle />
-        <ThemeToggle />
-        <a
-          href="http://localhost:8000/docs"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-zinc-600
-                     hover:text-zinc-400 hover:bg-zinc-800/60 transition-colors"
-        >
-          <ApiIcon />
-          {t("API Reference")}
-        </a>
       </div>
     </aside>
+  );
+}
+
+/* ── Collapsed footer sub-components (hook-only, no props needed) ── */
+function CollapsedLangToggle() {
+  const { lang, toggle } = useLanguage();
+  return (
+    <button onClick={toggle} title={lang === "ja" ? "Switch to English" : "日本語に切り替え"}
+      className="flex items-center justify-center w-full py-2.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors">
+      <GlobeIcon />
+    </button>
+  );
+}
+function CollapsedThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  return (
+    <button onClick={toggleTheme} title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      className="flex items-center justify-center w-full py-2.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors">
+      {theme === "dark" ? <MoonIcon /> : <SunIcon />}
+    </button>
   );
 }
 
@@ -177,25 +276,18 @@ function LanguageToggle() {
   const { lang, toggle } = useLanguage();
   const isJa = lang === "ja";
   return (
-    <button
-      onClick={toggle}
+    <button onClick={toggle}
       className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg
-                 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60
-                 transition-colors group"
-      title={isJa ? "Switch to English" : "日本語に切り替え"}
-    >
+                 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors"
+      title={isJa ? "Switch to English" : "日本語に切り替え"}>
       <span className="flex items-center gap-2 text-xs">
         <GlobeIcon />
         {isJa ? "日本語" : "English"}
       </span>
       <span className="flex items-center gap-0.5 text-[10px] font-mono">
-        <span className={`px-1.5 py-0.5 rounded transition-colors ${!isJa ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "text-zinc-700"}`}>
-          EN
-        </span>
+        <span className={`px-1.5 py-0.5 rounded transition-colors ${!isJa ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "text-zinc-700"}`}>EN</span>
         <span className="text-zinc-700">·</span>
-        <span className={`px-1.5 py-0.5 rounded transition-colors ${isJa ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "text-zinc-700"}`}>
-          JA
-        </span>
+        <span className={`px-1.5 py-0.5 rounded transition-colors ${isJa  ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "text-zinc-700"}`}>JA</span>
       </span>
     </button>
   );
@@ -205,21 +297,16 @@ function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const { t } = useLanguage();
   const isDark = theme === "dark";
-
   return (
-    <button
-      onClick={toggleTheme}
+    <button onClick={toggleTheme}
       className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg
-                 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60
-                 transition-colors group"
-      title={isDark ? t("Switch to light mode") : t("Switch to dark mode")}
-    >
+                 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors"
+      title={isDark ? t("Switch to light mode") : t("Switch to dark mode")}>
       <span className="flex items-center gap-2 text-xs">
         {isDark ? <MoonIcon /> : <SunIcon />}
         {isDark ? t("Dark mode") : t("Light mode")}
       </span>
-      <span className={`relative inline-flex h-4 w-7 flex-shrink-0 rounded-full
-                        border transition-colors duration-200
+      <span className={`relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border transition-colors duration-200
                         ${isDark ? "bg-zinc-800 border-zinc-700" : "bg-amber-400/20 border-amber-400/40"}`}>
         <span className={`absolute top-0.5 h-3 w-3 rounded-full shadow transition-transform duration-200
                           ${isDark ? "translate-x-0.5 bg-zinc-400" : "translate-x-3.5 bg-amber-400"}`} />
@@ -329,6 +416,20 @@ function ShieldIcon() {
       <path d="M7.5 1.5L2 4v4c0 3 2.5 5.5 5.5 5.5S13 11 13 8V4L7.5 1.5Z"
         stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
       <path d="M5 7.5l2 2 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function ChevronLeftIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 15 15" fill="none" className="shrink-0">
+      <path d="M9 3L4 7.5L9 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function ChevronRightIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 15 15" fill="none" className="shrink-0">
+      <path d="M5 3l5 4.5L5 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }

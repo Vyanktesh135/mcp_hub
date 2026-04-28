@@ -5,7 +5,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from database import init_db
-from routers import agent, registry, chatgpt, monitor, auth
+from routers import agent, registry, chatgpt, monitor, auth, social_auth, subscription
 from utils.limiter import limiter
 
 app = FastAPI(
@@ -26,6 +26,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(social_auth.router)
+app.include_router(subscription.router)
 app.include_router(agent.router)
 app.include_router(registry.router)
 app.include_router(chatgpt.router)

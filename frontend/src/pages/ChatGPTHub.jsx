@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { chatgptApi } from "../lib/api";
+import { chatgptApi, subscriptionApi } from "../lib/api";
 import { PageSpinner } from "../components/Spinner";
 import Spinner from "../components/Spinner";
 import { useLanguage } from "../context/LanguageContext";
+import { useAuth } from "../context/AuthContext";
 
 function now() { return Date.now(); }
 function fmtTime(ts) {
@@ -15,24 +16,48 @@ const CHAT_HEIGHT_EXPANDED = "calc(100vh - 84px)";
 
 export default function ChatGPTHub() {
   const { t } = useLanguage();
-  const [stats,       setStats]       = useState(null);
-  const [apis,        setApis]        = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [toggling,    setToggling]    = useState(null);
-  const [search,      setSearch]      = useState("");
-  const [expanded,    setExpanded]    = useState(false);
+  const { user } = useAuth();
+  const [stats,         setStats]         = useState(null);
+  const [apis,          setApis]          = useState([]);
+  const [subStatus,     setSubStatus]     = useState(null);
+  const [loading,       setLoading]       = useState(true);
+  const [toggling,      setToggling]      = useState(null);
+  const [search,        setSearch]        = useState("");
+  const [expanded,      setExpanded]      = useState(false);
+  const [activeSession, setActiveSession] = useState(null);
+  const [requesting,    setRequesting]    = useState(false);
+
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
-    Promise.all([chatgptApi.getStats(), chatgptApi.getRegistry()])
-      .then(([s, a]) => { setStats(s); setApis(a); })
+    const loads = [chatgptApi.getStats(), chatgptApi.getRegistry()];
+    if (!isAdmin) loads.push(subscriptionApi.getStatus());
+    Promise.all(loads)
+      .then(([s, a, sub]) => { setStats(s); setApis(a); if (sub) setSubStatus(sub); })
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleRequestAccess() {
+    setRequesting(true);
+    try {
+      await subscriptionApi.requestAccess();
+      setSubStatus(s => ({ ...s, chat_status: "pending" }));
+    } catch (e) {
+      alert(e.response?.data?.detail || "Failed to submit request");
+    } finally {
+      setRequesting(false);
+    }
+  }
 
   async function toggle(api) {
     setToggling(api.id);
     try {
-      if (api.is_connected) await chatgptApi.disconnect(api.id);
-      else                  await chatgptApi.connect(api.id);
+      if (api.is_connected) {
+        await chatgptApi.disconnect(api.id);
+        setActiveSession(null); // stale tool history must not persist
+      } else {
+        await chatgptApi.connect(api.id);
+      }
       const [s, a] = await Promise.all([chatgptApi.getStats(), chatgptApi.getRegistry()]);
       setStats(s); setApis(a);
     } finally {
@@ -48,6 +73,14 @@ export default function ChatGPTHub() {
   const connectedApis = apis.filter(a => a.is_connected);
 
   if (loading) return <PageSpinner />;
+
+  // ── Subscription gate (non-admins only) ──────────────────────────────────
+  if (!isAdmin && subStatus?.chat_status !== "approved") {
+    return <AccessGate status={subStatus?.chat_status || "none"} onRequest={handleRequestAccess} requesting={requesting} t={t} />;
+  }
+  if (!isAdmin && subStatus?.credits <= 0) {
+    return <NoCreditsGate t={t} />;
+  }
 
   /* ── Expanded (full-screen chat) mode ── */
   if (expanded) {
@@ -80,6 +113,8 @@ export default function ChatGPTHub() {
           onToggleExpand={() => setExpanded(false)}
           t={t}
           onStatsRefresh={() => chatgptApi.getStats().then(setStats)}
+          activeSession={activeSession}
+          onSessionChange={setActiveSession}
         />
       </div>
     );
@@ -97,10 +132,18 @@ export default function ChatGPTHub() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className={`grid gap-3 mb-4 ${isAdmin ? "grid-cols-3" : "grid-cols-4"}`}>
         <StatCard label={t("Total APIs")}           value={stats?.total_apis ?? 0}       icon={<LayersIcon />} />
         <StatCard label={t("Connected to ChatGPT")} value={stats?.connected_apis ?? 0}   icon={<PlugIcon />}  accent="emerald" />
         <StatCard label={t("Tool Calls Made")}      value={stats?.total_tool_calls ?? 0} icon={<BoltIcon />}  accent="blue" />
+        {!isAdmin && (
+          <StatCard
+            label={t("Credits")}
+            value={`$${(subStatus?.credits ?? 0).toFixed(4)}`}
+            icon={<CreditIcon />}
+            accent="violet"
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-[1fr_460px] gap-5 items-start">
@@ -152,6 +195,8 @@ export default function ChatGPTHub() {
             onToggleExpand={() => setExpanded(true)}
             t={t}
             onStatsRefresh={() => chatgptApi.getStats().then(setStats)}
+            activeSession={activeSession}
+            onSessionChange={setActiveSession}
           />
         </div>
       </div>
@@ -216,7 +261,7 @@ function ApiRow({ api, toggling, onToggle, t }) {
 /* ════════════════════════════════════════════════════════════════════════════
    Chat Panel
 ═══════════════════════════════════════════════════════════════════════════ */
-function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onToggleExpand, t }) {
+function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onToggleExpand, t, activeSession, onSessionChange }) {
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
@@ -248,7 +293,9 @@ function ChatPanel({ connectedApis, onStatsRefresh, chatHeight, expanded, onTogg
     }
 
     try {
-      const res = await chatgptApi.chat(text);
+      const res = await chatgptApi.chat(text, [], activeSession);
+
+      if (res.session_id) onSessionChange(res.session_id);
 
       if (res.status === "NO_TOOLS_CONNECTED") {
         setMessages(m => [...m, { role: "system", type: "no_tools", ts: now() }]);
@@ -624,9 +671,70 @@ function EmptyState({ noTools, toolNames, t }) {
   );
 }
 
+/* ── Subscription gate components ── */
+function AccessGate({ status, onRequest, requesting, t }) {
+  const states = {
+    none: {
+      icon: "🔒",
+      title: "Chat Access Required",
+      desc: "Request access to use MCP Chat. An admin will review and approve your request.",
+      action: true,
+    },
+    pending: {
+      icon: "⏳",
+      title: "Request Pending",
+      desc: "Your access request has been submitted. You'll be able to chat once an admin approves it.",
+      action: false,
+    },
+    rejected: {
+      icon: "✕",
+      title: "Access Denied",
+      desc: "Your request was not approved. Contact an admin if you believe this is a mistake.",
+      action: true,
+    },
+  };
+  const s = states[status] || states.none;
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="card p-8 max-w-sm w-full text-center space-y-4">
+        <div className="text-4xl">{s.icon}</div>
+        <div>
+          <p className="text-base font-semibold text-zinc-100">{s.title}</p>
+          <p className="text-sm text-zinc-500 mt-1">{s.desc}</p>
+        </div>
+        {s.action && (
+          <button
+            onClick={onRequest}
+            disabled={requesting}
+            className="btn-primary w-full justify-center disabled:opacity-60"
+          >
+            {requesting ? <Spinner size={14} /> : "Request Access"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NoCreditsGate({ t }) {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="card p-8 max-w-sm w-full text-center space-y-4">
+        <div className="text-4xl">💳</div>
+        <div>
+          <p className="text-base font-semibold text-zinc-100">No Credits Remaining</p>
+          <p className="text-sm text-zinc-500 mt-1">
+            Your credit balance is $0.00. Contact an admin to top up your account.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Stat card ── */
 function StatCard({ label, value, icon, accent }) {
-  const colors = { emerald: "text-emerald-400", blue: "text-blue-400" };
+  const colors = { emerald: "text-emerald-400", blue: "text-blue-400", violet: "text-violet-400" };
   return (
     <div className="card px-4 py-4">
       <div className="flex items-center justify-between mb-2">
@@ -652,3 +760,4 @@ function UserIcon()     { return <svg width="11" height="11" viewBox="0 0 24 24"
 function ChevronSmIcon({ open }) { return <svg width="11" height="11" viewBox="0 0 15 15" fill="none" className={`text-zinc-600 transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`}><path d="M3 5l4.5 5L12 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
 function ExpandIcon()   { return <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M9 1h5v5M6 9l8-8M1 6V1h5M6 9L1 14M9 14h5v-5M9 6l5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
 function ShrinkIcon()   { return <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M9 6V1M9 6h5M6 9H1M6 9v5M14 1l-5 5M1 14l5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
+function CreditIcon()   { return <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><rect x="1" y="3.5" width="13" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><path d="M1 6.5h13" stroke="currentColor" strokeWidth="1.4"/><path d="M4 9.5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>; }

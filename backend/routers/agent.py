@@ -111,8 +111,9 @@ async def create_manual(
     db.commit()
     db.refresh(session)
 
-    # Skip the LLM review step — go straight to validation + save
-    session = await orch.confirm(session, {})
+    # Skip the LLM review step — go straight to validation + save.
+    # Manual submissions are explicit, so don't block on unreachable test verdicts.
+    session = await orch.confirm(session, {}, save_anyway=True)
     return session
 
 
@@ -198,7 +199,7 @@ async def submit_hitl(
         session.auth_credentials = encrypt_creds(body.auth_credentials)
         db.add(session)
         db.commit()
-    session = await orch.confirm(session, body.edits)
+    session = await orch.confirm(session, body.edits, save_anyway=body.save_anyway)
     return session
 
 
@@ -216,6 +217,44 @@ async def confirm_session(
     session = _get_session_or_404(session_id, db, user_id=current_user.id)
     session = await orch.confirm(session, {})
     return session
+
+
+# ---------------------------------------------------------------------------
+# Discard session
+# ---------------------------------------------------------------------------
+@router.post("/{session_id}/discard", response_model=SessionResponse)
+async def discard_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    orch: AgentOrchestrator = Depends(_orchestrator),
+    current_user: User = Depends(get_current_user),
+):
+    """Mark a HITL_PENDING or FAILED session as discarded."""
+    session = _get_session_or_404(session_id, db, user_id=current_user.id)
+    session = await orch.discard(session)
+    return session
+
+
+# ---------------------------------------------------------------------------
+# Restart pipeline
+# ---------------------------------------------------------------------------
+@router.post("/{session_id}/restart", response_model=SessionResponse)
+async def restart_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    orch: AgentOrchestrator = Depends(_orchestrator),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Discard the current session and re-run the full pipeline with the same source.
+    Returns the new session (starts from CLASSIFYING, ends at HITL_PENDING).
+    """
+    session = _get_session_or_404(session_id, db, user_id=current_user.id)
+    new_session = await orch.restart(session)
+    new_session.user_id = current_user.id
+    db.add(new_session)
+    db.commit()
+    return new_session
 
 
 # ---------------------------------------------------------------------------

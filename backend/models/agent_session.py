@@ -38,6 +38,12 @@ class AgentSession(Base):
     # ── API live-test results (one entry per endpoint) ───────────────────────
     api_test_results: Mapped[Any] = mapped_column(JSON, nullable=True)
 
+    # ── pre-HITL validation reports (one entry per endpoint, from SchemaAgent) ─
+    validation_reports: Mapped[Any] = mapped_column(JSON, nullable=True)
+
+    # ── endpoint coverage: reference (file) vs generated ────────────────────
+    coverage_report: Mapped[Any] = mapped_column(JSON, nullable=True)
+
     # ── observability ────────────────────────────────────────────────────────
     error_log: Mapped[Any] = mapped_column(JSON, default=list)
 

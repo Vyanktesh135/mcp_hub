@@ -42,7 +42,8 @@ def test_login_success(client):
     client.post("/api/auth/register", json={"email": "u@test.com", "password": "pass1234"})
     r = client.post("/api/auth/login", json={"email": "u@test.com", "password": "pass1234"})
     assert r.status_code == 200
-    assert "access_token" in r.json()
+    assert r.json()["status"] == "otp_required"
+    assert r.json()["email"] == "u@test.com"
 
 
 def test_login_wrong_password(client):
@@ -126,13 +127,11 @@ def test_admin_deactivate_user(admin_client, client):
 def test_deactivated_user_cannot_login(admin_client, client):
     c, _ = admin_client
     client.post("/api/auth/register", json={"email": "bye@test.com", "password": "pass"})
-    uid = client.get("/api/auth/me", headers={"Authorization": f"Bearer {client.post('/api/auth/login', json={'email':'bye@test.com','password':'pass'}).json()['access_token']}"}).json()["id"]
+    # find user id via admin list
+    uid = next(u["id"] for u in c.get("/api/auth/admin/users").json() if u["email"] == "bye@test.com")
     c.patch(f"/api/auth/admin/users/{uid}/active", json={"is_active": False})
     r = client.post("/api/auth/login", json={"email": "bye@test.com", "password": "pass"})
-    # login returns token but /me should fail
-    token = r.json().get("access_token")
-    me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert me.status_code == 401
+    assert r.status_code == 403
 
 
 def test_admin_cannot_deactivate_self(admin_client):

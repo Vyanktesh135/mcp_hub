@@ -44,6 +44,7 @@ class StartDocRequest(BaseModel):
 class HITLSubmitRequest(BaseModel):
     edits: dict[str, Any]
     auth_credentials: Any = None
+    save_anyway: bool = False
 
 
 class SessionResponse(BaseModel):

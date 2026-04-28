@@ -3,9 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models.user import User
-from schemas.auth import RegisterRequest, LoginRequest, TokenResponse, UserResponse, UpdateRoleRequest, SetActiveRequest
+from schemas.auth import (
+    RegisterRequest, LoginRequest, TokenResponse, UserResponse,
+    UpdateRoleRequest, SetActiveRequest, OTPVerifyRequest, OTPRequiredResponse,
+)
 from utils.auth import hash_password, verify_password, create_access_token, get_current_user, require_admin
 from utils.limiter import limiter
+from utils.otp import otp_store
+from utils.email_sender import send_otp_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -17,6 +22,7 @@ def _user_response(u: User) -> UserResponse:
         full_name=u.full_name,
         role=u.role,
         is_active=u.is_active,
+        auth_provider=u.auth_provider,
         created_at=u.created_at.isoformat(),
     )
 
@@ -39,12 +45,48 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
     return TokenResponse(access_token=create_access_token(user.id))
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=OTPRequiredResponse)
 @limiter.limit("10/minute")
 def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
-    if not user or not verify_password(req.password, user.hashed_password):
+
+    if not user:
         raise HTTPException(401, "Invalid email or password")
+
+    if user.auth_provider != "local":
+        raise HTTPException(400, f"This account uses {user.auth_provider.title()} sign-in. "
+                                 "Please use the social login button.")
+
+    if not user.hashed_password or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(401, "Invalid email or password")
+
+    if not user.is_active:
+        raise HTTPException(403, "Account is deactivated")
+
+    code = otp_store.generate(user.email)
+    try:
+        send_otp_email(user.email, code, user.full_name or "")
+    except Exception as exc:
+        otp_store.invalidate(user.email)
+        raise HTTPException(500, f"Failed to send OTP email: {exc}")
+
+    return OTPRequiredResponse(
+        message=f"A 6-digit code has been sent to {user.email}",
+        email=user.email,
+    )
+
+
+@router.post("/verify-otp", response_model=TokenResponse)
+@limiter.limit("10/minute")
+def verify_otp(request: Request, req: OTPVerifyRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    ok, error = otp_store.verify(user.email, req.otp)
+    if not ok:
+        raise HTTPException(401, error)
+
     return TokenResponse(access_token=create_access_token(user.id))
 
 

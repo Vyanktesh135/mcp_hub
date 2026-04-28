@@ -135,6 +135,13 @@ function ApiCard({ api, highlighted, t }) {
           )}
 
           <div className="flex gap-2 pt-1">
+            <Link
+              to={`/registry/${api.id}`}
+              className="btn-primary text-xs px-3 py-1.5"
+              onClick={e => e.stopPropagation()}
+            >
+              Manage
+            </Link>
             <button
               onClick={() => navigator.clipboard.writeText(api.id)}
               className="btn-ghost text-xs px-3 py-1.5"

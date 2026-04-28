@@ -24,7 +24,11 @@ export const authApi = {
     http.post("/api/auth/register", { email, password, full_name: fullName }).then(r => r.data),
   login: (email, password) =>
     http.post("/api/auth/login", { email, password }).then(r => r.data),
+  verifyOtp: (email, otp) =>
+    http.post("/api/auth/verify-otp", { email, otp }).then(r => r.data),
   me: () => http.get("/api/auth/me").then(r => r.data),
+  googleLoginUrl:    () => "http://localhost:8000/api/auth/google",
+  githubLoginUrl: () => "http://localhost:8000/api/auth/github",
 };
 
 export const adminApi = {
@@ -45,11 +49,17 @@ export const agentApi = {
 
   getSession: (id) => http.get(`/api/agent/${id}`).then((r) => r.data),
 
-  submitHITL: (id, edits, authCredentials = null) =>
-    http.post(`/api/agent/${id}/hitl`, { edits, auth_credentials: authCredentials }).then((r) => r.data),
+  submitHITL: (id, edits, authCredentials = null, saveAnyway = false) =>
+    http.post(`/api/agent/${id}/hitl`, { edits, auth_credentials: authCredentials, save_anyway: saveAnyway }).then((r) => r.data),
 
   confirm: (id) =>
     http.post(`/api/agent/${id}/confirm`).then((r) => r.data),
+
+  discard: (id) =>
+    http.post(`/api/agent/${id}/discard`).then((r) => r.data),
+
+  restart: (id) =>
+    http.post(`/api/agent/${id}/restart`).then((r) => r.data),
 
   listSessions: () => http.get("/api/agent/").then((r) => r.data),
 
@@ -58,9 +68,14 @@ export const agentApi = {
 };
 
 export const registryApi = {
-  list: () => http.get("/api/registry/").then((r) => r.data),
-  get: (id) => http.get(`/api/registry/${id}`).then((r) => r.data),
-  delete: (id) => http.delete(`/api/registry/${id}`),
+  list:           ()             => http.get("/api/registry/").then(r => r.data),
+  get:            (id)           => http.get(`/api/registry/${id}`).then(r => r.data),
+  update:         (id, data)     => http.patch(`/api/registry/${id}`, data).then(r => r.data),
+  updateAuth:     (id, authType) => http.patch(`/api/registry/${id}/auth`, { auth_type: authType }).then(r => r.data),
+  delete:         (id)           => http.delete(`/api/registry/${id}`),
+  createEndpoint: (id, data)     => http.post(`/api/registry/${id}/endpoints`, data).then(r => r.data),
+  updateEndpoint: (id, epId, data) => http.put(`/api/registry/${id}/endpoints/${epId}`, data).then(r => r.data),
+  deleteEndpoint: (id, epId)     => http.delete(`/api/registry/${id}/endpoints/${epId}`),
 };
 
 export const monitorApi = {
@@ -71,12 +86,22 @@ export const monitorApi = {
   pipeline:   () => http.get("/api/monitor/pipeline").then(r => r.data),
 };
 
+export const subscriptionApi = {
+  requestAccess: ()             => http.post("/api/subscription/request").then(r => r.data),
+  getStatus:     ()             => http.get("/api/subscription/status").then(r => r.data),
+  adminRequests: ()             => http.get("/api/subscription/admin/requests").then(r => r.data),
+  adminAllUsers: ()             => http.get("/api/subscription/admin/all-users").then(r => r.data),
+  approve:       (userId)       => http.patch(`/api/subscription/admin/${userId}/approve`).then(r => r.data),
+  reject:        (userId)       => http.patch(`/api/subscription/admin/${userId}/reject`).then(r => r.data),
+  topUp:         (userId, amt)  => http.post(`/api/subscription/admin/${userId}/top-up`, { amount: amt }).then(r => r.data),
+};
+
 export const chatgptApi = {
   getStats:    ()      => http.get("/api/chatgpt/stats").then((r) => r.data),
   getRegistry: ()      => http.get("/api/chatgpt/registry").then((r) => r.data),
   connect:     (id)    => http.post(`/api/chatgpt/connect/${id}`).then((r) => r.data),
   disconnect:  (id)    => http.delete(`/api/chatgpt/disconnect/${id}`).then((r) => r.data),
   getTools:    (id)    => http.get(`/api/chatgpt/tools/${id}`).then((r) => r.data),
-  chat:        (message, api_ids = []) =>
-    http.post("/api/chatgpt/chat", { message, api_ids }).then((r) => r.data),
+  chat:        (message, api_ids = [], session_id = null) =>
+    http.post("/api/chatgpt/chat", { message, api_ids, session_id }).then((r) => r.data),
 };

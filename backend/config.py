@@ -10,7 +10,26 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
-    encryption_key: str = ""  # Set to any secret string to enable credential encryption
+    encryption_key: str = ""
+
+    # ── SMTP (Gmail) ──────────────────────────────────────────────────────────
+    smtp_host:     str = "smtp.gmail.com"
+    smtp_port:     int = 587
+    smtp_user:     str = ""   # your Gmail address
+    smtp_password: str = ""   # Gmail App Password (not your regular password)
+
+    # ── Google OAuth2 ─────────────────────────────────────────────────────────
+    google_client_id:     str = ""
+    google_client_secret: str = ""
+    google_redirect_uri:  str = "http://localhost:8000/api/auth/google/callback"
+
+    # ── GitHub OAuth2 ────────────────────────────────────────────────────────
+    github_client_id:     str = ""
+    github_client_secret: str = ""
+    github_redirect_uri:  str = "http://localhost:8000/api/auth/github/callback"
+
+    # ── Frontend base URL (for OAuth redirects back to SPA) ───────────────────
+    frontend_url: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
