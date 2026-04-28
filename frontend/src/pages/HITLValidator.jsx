@@ -7,12 +7,13 @@ import Spinner from "../components/Spinner";
 import { useLanguage } from "../context/LanguageContext";
 
 /* ── Constants ── */
-const PROCESSING_STATES = ["CLASSIFYING", "PARSING", "SCHEMA_GENERATING", "CONFIDENCE_SCORING"];
+const PROCESSING_STATES = ["CLASSIFYING", "PARSING", "SCHEMA_GENERATING", "RECONCILING", "CONFIDENCE_SCORING"];
 const POST_HITL_STATES  = ["VALIDATING", "API_TESTING", "SAVING"];
 const STATE_LABEL_KEYS = {
   CLASSIFYING:        "Detecting input type…",
   PARSING:            "Extracting API structure…",
   SCHEMA_GENERATING:  "Building schema…",
+  RECONCILING:        "Reconciling endpoints…",
   CONFIDENCE_SCORING: "Scoring confidence…",
   VALIDATING:         "Validating schema…",
   API_TESTING:        "Testing API endpoints live…",
@@ -149,8 +150,10 @@ export default function HITLValidator() {
   const [error,      setError]            = useState(null);
   const [loading,    setLoading]          = useState(true);
   const [savedApiId, setSavedApiId]       = useState(null);
-  const [authMode,   setAuthMode]         = useState("same");
-  const [globalAuth, setGlobalAuth]       = useState({ ...EMPTY_CREDS });
+  const [authMode,      setAuthMode]      = useState("same");
+  const [globalAuth,    setGlobalAuth]    = useState({ ...EMPTY_CREDS });
+  const [recovering,    setRecovering]    = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pollRef                           = useRef(null);
 
   /* ── polling during LLM processing ── */
@@ -239,14 +242,14 @@ export default function HITLValidator() {
   }
 
   /* ── submit ── */
-  async function handleConfirm(e) {
-    e.preventDefault();
+  async function handleConfirm(e, saveAnyway = false) {
+    if (e && e.preventDefault) e.preventDefault();
     setSaving(true);
     setError(null);
     try {
       const edits = formToEdits(form, authMode, globalAuth);
       const authCredentials = buildAuthCredentials(authMode, globalAuth, form.endpoints);
-      const updated = await agentApi.submitHITL(sessionId, edits, authCredentials);
+      const updated = await agentApi.submitHITL(sessionId, edits, authCredentials, saveAnyway);
       setSession(updated);
       if (updated.state === "SAVED") {
         setSavedApiId(updated.api_definition_id);
@@ -260,6 +263,34 @@ export default function HITLValidator() {
     }
   }
 
+  async function handleSaveAnyway() {
+    await handleConfirm(null, true);
+  }
+
+  /* ── restart pipeline with same file ── */
+  async function handleRestart() {
+    setRecovering(true);
+    setError(null);
+    try {
+      const newSession = await agentApi.restart(sessionId);
+      navigate(`/validate/${newSession.id}`, { replace: true });
+    } catch (err) {
+      setError(err.response?.data?.detail || t("Restart failed."));
+      setRecovering(false);
+    }
+  }
+
+  /* ── discard session ── */
+  async function handleDiscard() {
+    setRecovering(true);
+    try {
+      await agentApi.discard(sessionId);
+      navigate("/doc-upload", { replace: true });
+    } catch {
+      navigate("/doc-upload", { replace: true });
+    }
+  }
+
   /* ── render ── */
   if (loading)                                           return <PageSpinner />;
   if (error && !session)                                 return <ErrorPage message={error} t={t} />;
@@ -270,6 +301,9 @@ export default function HITLValidator() {
   const valErrors   = session?.validation_errors || [];
   const isFailed    = session?.state === "FAILED";
   const isManual    = session?.mode === "MANUAL";
+  const testResults = session?.api_test_results || [];
+  const hasTestIssues = session?.state === "HITL_PENDING" &&
+    testResults.some(r => r.verdict === "UNREACHABLE" || r.verdict === "WARNING");
 
   // Detect when auth type is required but no credentials have been filled in
   const apiAuthType    = form?.auth_type || "none";
@@ -318,7 +352,7 @@ export default function HITLValidator() {
 
       {/* Validation errors */}
       {valErrors.length > 0 && (
-        <div className="mb-5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+        <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
           <p className="text-sm font-medium text-amber-400 mb-2">{t("Fix before saving:")}</p>
           <ul className="space-y-1">
             {valErrors.map((e, i) => (
@@ -328,6 +362,47 @@ export default function HITLValidator() {
             ))}
           </ul>
         </div>
+      )}
+
+      {/* API test issues — shown when UNREACHABLE / WARNING blocked saving */}
+      {hasTestIssues && (
+        <div className="mb-5">
+          <div className="mb-3 flex items-start gap-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/30">
+            <span className="text-orange-400 text-base leading-none mt-0.5 flex-shrink-0">⚠</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-orange-300">{t("Some endpoints could not be reached")}</p>
+              <p className="text-xs text-orange-400/80 mt-0.5 leading-relaxed">
+                {t("The live test found unreachable or problematic endpoints. Review the results below, then fix the API details and try again — or save anyway if the endpoints are not yet live.")}
+              </p>
+            </div>
+          </div>
+          <TestResultsPanel results={testResults} sessionId={sessionId} t={t} />
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={handleSaveAnyway}
+              disabled={saving}
+              className="btn-secondary text-sm px-5 py-2"
+            >
+              {saving ? <><Spinner size={12} /> {t("Saving…")}</> : t("Save Anyway")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Recovery action bar — shown when validation failed, pipeline failed, or test issues */}
+      {(valErrors.length > 0 || isFailed || hasTestIssues) && (
+        <RecoveryActions
+          isFailed={isFailed && !hasTestIssues}
+          recovering={recovering}
+          confirmDiscard={confirmDiscard}
+          onRestart={handleRestart}
+          onReupload={() => navigate("/doc-upload")}
+          onDiscardRequest={() => setConfirmDiscard(true)}
+          onDiscardConfirm={handleDiscard}
+          onDiscardCancel={() => setConfirmDiscard(false)}
+          t={t}
+        />
       )}
 
       <form onSubmit={handleConfirm} className="space-y-5">
@@ -425,6 +500,88 @@ export default function HITLValidator() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/* ── Recovery action bar ── */
+function RecoveryActions({ isFailed, recovering, confirmDiscard, onRestart, onReupload, onDiscardRequest, onDiscardConfirm, onDiscardCancel, t }) {
+  return (
+    <div className="mb-5 rounded-xl border border-zinc-700/60 bg-zinc-900/60 overflow-hidden">
+      <div className="px-4 py-3 border-b border-zinc-800 flex items-center gap-2">
+        <span className="text-sm font-semibold text-zinc-200">{t("What would you like to do?")}</span>
+      </div>
+
+      <div className="p-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {/* Restart pipeline */}
+        <button
+          type="button"
+          disabled={recovering}
+          onClick={onRestart}
+          className="flex flex-col gap-1 px-4 py-3 rounded-lg bg-blue-600/10 border border-blue-500/25
+                     hover:bg-blue-600/20 hover:border-blue-500/50 transition-all text-left disabled:opacity-50"
+        >
+          <span className="text-sm font-semibold text-blue-300">
+            {recovering ? t("Restarting…") : t("Restart Pipeline")}
+          </span>
+          <span className="text-xs text-blue-400/70 leading-snug">
+            {t("Re-run the full AI extraction on the same file from scratch.")}
+          </span>
+        </button>
+
+        {/* Re-upload different file */}
+        <button
+          type="button"
+          disabled={recovering}
+          onClick={onReupload}
+          className="flex flex-col gap-1 px-4 py-3 rounded-lg bg-zinc-800/60 border border-zinc-700
+                     hover:bg-zinc-800 hover:border-zinc-600 transition-all text-left disabled:opacity-50"
+        >
+          <span className="text-sm font-semibold text-zinc-200">{t("Re-upload File")}</span>
+          <span className="text-xs text-zinc-500 leading-snug">
+            {t("Discard this session and upload a different or corrected file.")}
+          </span>
+        </button>
+
+        {/* Discard */}
+        {!confirmDiscard ? (
+          <button
+            type="button"
+            disabled={recovering}
+            onClick={onDiscardRequest}
+            className="flex flex-col gap-1 px-4 py-3 rounded-lg bg-red-500/5 border border-red-500/20
+                       hover:bg-red-500/10 hover:border-red-500/35 transition-all text-left disabled:opacity-50"
+          >
+            <span className="text-sm font-semibold text-red-400">{t("Discard")}</span>
+            <span className="text-xs text-red-400/60 leading-snug">
+              {t("Permanently remove this session.")}
+            </span>
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30">
+            <p className="text-xs font-semibold text-red-300">{t("Confirm discard?")}</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={onDiscardConfirm}
+                className="flex-1 py-1 text-xs rounded-md bg-red-600/25 text-red-300 border border-red-500/30 hover:bg-red-600/40 transition-colors">
+                {t("Yes, discard")}
+              </button>
+              <button type="button" onClick={onDiscardCancel}
+                className="flex-1 py-1 text-xs rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 transition-colors">
+                {t("Cancel")}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Edit again hint — only shown when validation errors (not pipeline failure) */}
+      {!isFailed && (
+        <div className="px-4 pb-3">
+          <p className="text-xs text-zinc-600">
+            {t("Or fix the errors above directly in the form and click")} <span className="text-zinc-400 font-medium">{t("Confirm & Save")}</span> {t("again.")}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -986,7 +1143,7 @@ function ProcessingPage({ state, t }) {
       <p className="text-zinc-200 font-medium mb-1">{t(STATE_LABEL_KEYS[state]) || state}</p>
       <p className="text-zinc-600 text-sm">{t("This usually takes a few seconds")}</p>
       <div className="flex gap-1.5 mt-5">
-        {["CLASSIFYING","PARSING","SCHEMA_GENERATING","CONFIDENCE_SCORING"].map(s => (
+        {["CLASSIFYING","PARSING","SCHEMA_GENERATING","RECONCILING","CONFIDENCE_SCORING"].map(s => (
           <div key={s} className={`w-1.5 h-1.5 rounded-full transition-colors ${s === state ? "bg-blue-400 animate-pulse-dot" : "bg-zinc-700"}`} />
         ))}
       </div>

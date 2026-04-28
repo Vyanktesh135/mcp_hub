@@ -1,9 +1,9 @@
 """ConfidenceAgent — scores each field of the draft API for HITL highlighting."""
 
+import json
 from agents.base import BaseAgent
 from models.agent_session import AgentSession
 from llm.client import chat_json
-import json
 
 _META_SYSTEM = """You are an API quality reviewer. Score the top-level fields of this API schema.
 
@@ -15,22 +15,38 @@ Evaluate only: name, description, base_url, auth_type.
 Return ONLY the JSON object."""
 
 
-def _score_endpoints(endpoints: list) -> dict:
-    """Rule-based endpoint scoring — works for any number of endpoints without LLM."""
-    result = {}
+def _score_endpoints(endpoints: list, validation_reports: list) -> dict:
+    """Rule-based endpoint scoring, adjusted by pre-HITL validation results."""
+    # Build a lookup: hint → report
+    report_map: dict = {}
+    for r in (validation_reports or []):
+        report_map[r.get("hint", "")] = r
+
+    result: dict = {}
     for i, ep in enumerate(endpoints):
         prefix = f"endpoints.{i}"
-        for field in ("name", "path", "method", "auth_type"):
-            val = ep.get(field)
+        hint   = f"{ep.get('method','')} {ep.get('path','')}"
+        report = report_map.get(hint, {})
+        had_fixes  = report.get("was_auto_fixed", False)
+        had_errors = not report.get("is_valid", True)
+
+        # Base scores for required identity fields
+        for field_name in ("name", "path", "method", "auth_type"):
+            val = ep.get(field_name)
             if not val:
-                result[f"{prefix}.{field}"] = {
+                result[f"{prefix}.{field_name}"] = {
                     "score": 0, "status": "MISSING",
-                    "suggestion": f"Add {field}",
+                    "suggestion": f"Add {field_name}",
                 }
             else:
-                result[f"{prefix}.{field}"] = {
-                    "score": 90, "status": "HIGH", "suggestion": None,
+                score = 85 if not had_errors else 65
+                result[f"{prefix}.{field_name}"] = {
+                    "score": score,
+                    "status": "HIGH" if score >= 80 else "MEDIUM",
+                    "suggestion": None,
                 }
+
+        # Input schema
         props = (ep.get("input_schema") or {}).get("properties") or {}
         if not props:
             result[f"{prefix}.input_schema"] = {
@@ -38,9 +54,14 @@ def _score_endpoints(endpoints: list) -> dict:
                 "suggestion": "Add input parameters",
             }
         else:
+            score = 80 if not had_fixes else 65
             result[f"{prefix}.input_schema"] = {
-                "score": 80, "status": "HIGH", "suggestion": None,
+                "score": score,
+                "status": "HIGH" if score >= 80 else "MEDIUM",
+                "suggestion": "Review auto-fixed parameters" if had_fixes else None,
             }
+
+        # Output schema
         out_props = (ep.get("output_schema") or {}).get("properties") or {}
         if not out_props:
             result[f"{prefix}.output_schema"] = {
@@ -51,6 +72,7 @@ def _score_endpoints(endpoints: list) -> dict:
             result[f"{prefix}.output_schema"] = {
                 "score": 80, "status": "HIGH", "suggestion": None,
             }
+
     return result
 
 
@@ -58,17 +80,21 @@ class ConfidenceAgent(BaseAgent):
     name = "confidence_agent"
 
     async def run(self, session: AgentSession) -> AgentSession:
-        draft = session.draft_api or {}
+        draft    = session.draft_api or {}
         endpoints = draft.get("endpoints", [])
+        reports   = session.validation_reports or []
 
-        # LLM scores only the 4 top-level metadata fields — bounded, never truncates
-        meta_prompt = json.dumps({
-            k: draft.get(k) for k in ("name", "description", "base_url", "auth_type")
-        }, indent=2)
+        meta_prompt = json.dumps(
+            {k: draft.get(k) for k in ("name", "description", "base_url", "auth_type")},
+            indent=2,
+        )
         try:
             meta_scores = await chat_json(_META_SYSTEM, meta_prompt, max_tokens=512)
         except Exception:
             meta_scores = {}
 
-        session.confidence_map = {**meta_scores, **_score_endpoints(endpoints)}
+        session.confidence_map = {
+            **meta_scores,
+            **_score_endpoints(endpoints, reports),
+        }
         return session

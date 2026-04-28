@@ -5,11 +5,12 @@ import { agentApi } from "../lib/api";
 const UploadContext = createContext(null);
 
 export const STAGE_LABELS = {
-  UPLOADING:          "File uploading, please wait…",
+  UPLOADING:          "Uploading document…",
   INIT:               "Initializing…",
   CLASSIFYING:        "Detecting file type…",
   PARSING:            "Extracting endpoints…",
   SCHEMA_GENERATING:  "Generating schema…",
+  RECONCILING:        "Reconciling endpoints…",
   CONFIDENCE_SCORING: "Scoring confidence…",
   HITL_PENDING:       "Ready for HITL review",
   VALIDATING:         "Validating…",
@@ -22,11 +23,12 @@ export const STAGE_LABELS = {
 
 const TERMINAL_STATES = new Set(["HITL_PENDING", "SAVED", "FAILED", "ERROR"]);
 
-// Stages shown in the progress checklist (excludes UPLOADING which is pre-pipeline)
+// Stages shown in the progress checklist
 export const PIPELINE_STAGES = [
   "CLASSIFYING",
   "PARSING",
   "SCHEMA_GENERATING",
+  "RECONCILING",
   "CONFIDENCE_SCORING",
   "HITL_PENDING",
 ];
@@ -34,12 +36,19 @@ export const PIPELINE_STAGES = [
 /* ── localStorage persistence ──────────────────────────────────────────── */
 const STORAGE_KEY = "mcp_hub_bg_uploads";
 
+const PENDING_TTL = 3 * 60 * 1000; // 3 min — discard if HTTP call was cancelled by refresh
+
 function loadPersistedUploads() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    // Strip any stale placeholder entries that survived an abnormal exit
-    return parsed.filter(u => u.id && u.id !== "__pending__");
+    const now = Date.now();
+    return parsed.filter(u => {
+      if (!u.id) return false;
+      // Keep __pending__ only within TTL (after that the HTTP call was likely cancelled)
+      if (u.id === "__pending__") return u._ts && (now - u._ts) < PENDING_TTL;
+      return true;
+    });
   } catch {
     return [];
   }
@@ -47,9 +56,15 @@ function loadPersistedUploads() {
 
 function persistUploads(uploads) {
   try {
+    const now = Date.now();
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(uploads.filter(u => u.id && u.id !== "__pending__"))
+      JSON.stringify(
+        uploads
+          .filter(u => u.id)
+          // Stamp __pending__ entries with creation time so TTL works on reload
+          .map(u => u.id === "__pending__" ? { ...u, _ts: u._ts ?? now } : u)
+      )
     );
   } catch {}
 }
@@ -119,7 +134,8 @@ export function UploadProvider({ children }) {
   useEffect(() => {
     const persisted = loadPersistedUploads();
     persisted.forEach(u => {
-      if (!TERMINAL_STATES.has(u.status)) {
+      // __pending__ has no real session ID — can't poll, just show card as-is
+      if (u.id !== "__pending__" && !TERMINAL_STATES.has(u.status)) {
         startBgPoll(u.id);
       }
     });

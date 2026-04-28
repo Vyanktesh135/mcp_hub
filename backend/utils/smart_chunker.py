@@ -256,23 +256,50 @@ async def _extract_single(text: str, method: str, path: str) -> dict:
     return await chat_json(_ENDPOINT_SYSTEM, prompt, max_tokens=2048)
 
 
+# Boundaries: markdown headings (##/###/####) or bare HTTP-method lines
+_BOUNDARY = re.compile(
+    r'^(?:#{2,4}\s+.+|(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+/\S*)',
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
 def _find_section(text: str, method: str, path: str) -> str:
-    """Find the text window most likely to describe this endpoint."""
-    # Try to find method + path together first
+    """
+    Find the semantic section for an endpoint.
+    Uses heading/HTTP-method boundary lines instead of a fixed char window,
+    so each returned section maps cleanly to one endpoint with no overlap.
+    """
+    # Locate the endpoint reference in the text
     pattern = re.compile(
         rf'\b{re.escape(method.upper())}\b.{{0,80}}{re.escape(path)}',
         re.IGNORECASE | re.DOTALL,
     )
     match = pattern.search(text)
     if not match:
-        # Fall back to just the path
         pattern = re.compile(re.escape(path), re.IGNORECASE)
-        match = pattern.search(text)
+        match   = pattern.search(text)
 
-    if match:
-        start = max(0, match.start() - 300)
-        end   = min(len(text), match.end() + 3_000)
-        return text[start:end]
+    if not match:
+        return text[:4_000]
 
-    # No match — return the beginning of the doc as a fallback
-    return text[:4_000]
+    match_pos = match.start()
+
+    # Walk boundary positions to find the enclosing section
+    boundaries = [m.start() for m in _BOUNDARY.finditer(text)]
+
+    section_start = 0
+    section_end   = len(text)
+    for pos in boundaries:
+        if pos <= match_pos:
+            section_start = pos
+        elif section_end == len(text):
+            section_end = pos
+
+    section = text[section_start:section_end]
+
+    # Cap very long sections to avoid overwhelming the LLM
+    if len(section) > 4_000:
+        context_start = max(section_start, match_pos - 300)
+        section = text[context_start: min(section_end, context_start + 4_000)]
+
+    return section

@@ -31,6 +31,7 @@ class ParsingAgent(BaseAgent):
             "base_url":  base_info.get("base_url", ""),
             "auth_type": base_info.get("auth_type", "UNKNOWN"),
             "name":      base_info.get("name", ""),
+            "_fmt":      fmt,
             "_chunks": [
                 {"method": c.method, "path": c.path, "hint": c.hint, "content": c.content}
                 for c in chunks

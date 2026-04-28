@@ -58,14 +58,23 @@ def _handle_json(path: str) -> tuple[str, str]:
         return raw, "text"
 
 
+class _YamlLoader(yaml.SafeLoader):
+    """SafeLoader extended to tolerate YAML 1.1 value-indicator tags (= nodes)."""
+
+yaml.add_constructor(
+    "tag:yaml.org,2002:value",
+    lambda loader, node: loader.construct_scalar(node),
+    Loader=_YamlLoader,
+)
+
+
 def _handle_yaml(path: str) -> tuple[str, str]:
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         raw = f.read()
     try:
-        data = yaml.safe_load(raw)
+        data = yaml.load(raw, Loader=_YamlLoader)  # noqa: S506
         fmt = _detect_structured_format(data)
-        # Return as JSON string so downstream code has one consistent format
-        return json.dumps(data, indent=2), fmt.replace("yaml", "json")
+        return json.dumps(data, indent=2, default=str), fmt.replace("yaml", "json")
     except Exception:
         return raw, "text"
 

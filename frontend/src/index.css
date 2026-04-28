@@ -129,6 +129,14 @@
     @apply text-sm font-semibold text-zinc-200;
   }
 
+  /* ── Form fields (used in ToolDetail, ChatBuilder) ── */
+  .field-input {
+    @apply w-full bg-zinc-800/60 border border-zinc-700/60 rounded-lg px-3 py-2
+           text-sm text-zinc-100 placeholder-zinc-600
+           focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20
+           transition-colors;
+  }
+
   /* ── Status colors ── */
   .status-success { @apply text-emerald-400; }
   .status-warning { @apply text-amber-400; }

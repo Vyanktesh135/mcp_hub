@@ -49,11 +49,17 @@ export const agentApi = {
 
   getSession: (id) => http.get(`/api/agent/${id}`).then((r) => r.data),
 
-  submitHITL: (id, edits, authCredentials = null) =>
-    http.post(`/api/agent/${id}/hitl`, { edits, auth_credentials: authCredentials }).then((r) => r.data),
+  submitHITL: (id, edits, authCredentials = null, saveAnyway = false) =>
+    http.post(`/api/agent/${id}/hitl`, { edits, auth_credentials: authCredentials, save_anyway: saveAnyway }).then((r) => r.data),
 
   confirm: (id) =>
     http.post(`/api/agent/${id}/confirm`).then((r) => r.data),
+
+  discard: (id) =>
+    http.post(`/api/agent/${id}/discard`).then((r) => r.data),
+
+  restart: (id) =>
+    http.post(`/api/agent/${id}/restart`).then((r) => r.data),
 
   listSessions: () => http.get("/api/agent/").then((r) => r.data),
 
@@ -62,9 +68,14 @@ export const agentApi = {
 };
 
 export const registryApi = {
-  list: () => http.get("/api/registry/").then((r) => r.data),
-  get: (id) => http.get(`/api/registry/${id}`).then((r) => r.data),
-  delete: (id) => http.delete(`/api/registry/${id}`),
+  list:           ()             => http.get("/api/registry/").then(r => r.data),
+  get:            (id)           => http.get(`/api/registry/${id}`).then(r => r.data),
+  update:         (id, data)     => http.patch(`/api/registry/${id}`, data).then(r => r.data),
+  updateAuth:     (id, authType) => http.patch(`/api/registry/${id}/auth`, { auth_type: authType }).then(r => r.data),
+  delete:         (id)           => http.delete(`/api/registry/${id}`),
+  createEndpoint: (id, data)     => http.post(`/api/registry/${id}/endpoints`, data).then(r => r.data),
+  updateEndpoint: (id, epId, data) => http.put(`/api/registry/${id}/endpoints/${epId}`, data).then(r => r.data),
+  deleteEndpoint: (id, epId)     => http.delete(`/api/registry/${id}/endpoints/${epId}`),
 };
 
 export const monitorApi = {

@@ -9,6 +9,7 @@ import ChatBuilder   from "./pages/ChatBuilder";
 import DocUpload     from "./pages/DocUpload";
 import HITLValidator from "./pages/HITLValidator";
 import Registry      from "./pages/Registry";
+import ToolDetail    from "./pages/ToolDetail";
 import ChatGPTHub    from "./pages/ChatGPTHub";
 import Monitor       from "./pages/Monitor";
 import Admin         from "./pages/Admin";
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
       { path: "create/upload",       element: <DocUpload /> },
       { path: "validate/:sessionId", element: <HITLValidator /> },
       { path: "registry",            element: <Registry /> },
+      { path: "registry/:id",        element: <ToolDetail /> },
       { path: "chatgpt",             element: <ChatGPTHub /> },
       { path: "monitor",             element: <Monitor /> },
       { path: "admin",               element: <Admin /> },

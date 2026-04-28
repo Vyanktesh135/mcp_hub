@@ -64,8 +64,25 @@ export default function UploadToast() {
                 </button>
               </div>
 
+              {/* ── Uploading phase (pre-pipeline, no stage index) ── */}
+              {!isDone && stageIdx < 0 && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg"
+                     style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 animate-pulse" />
+                  <span className="text-xs flex-1" style={{ color: "#93c5fd" }}>
+                    Uploading and analysing document…
+                  </span>
+                  <span className="flex gap-0.5">
+                    {[0,1,2].map(j => (
+                      <span key={j} className="w-1 h-1 rounded-full bg-blue-400"
+                            style={{ animation: `pulse 1.2s ease-in-out ${j * 0.2}s infinite` }} />
+                    ))}
+                  </span>
+                </div>
+              )}
+
               {/* ── In-progress stage list ── */}
-              {!isDone && (
+              {!isDone && stageIdx >= 0 && (
                 <div className="space-y-1.5 mb-3">
                   {PIPELINE_STAGES.map((stage, i) => {
                     const done   = stageIdx > i;
