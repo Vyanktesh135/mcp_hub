@@ -61,6 +61,9 @@ export const agentApi = {
   restart: (id) =>
     http.post(`/api/agent/${id}/restart`).then((r) => r.data),
 
+  patchDraft: (id, partial) =>
+    http.patch(`/api/agent/${id}/draft`, partial).then((r) => r.data),
+
   listSessions: () => http.get("/api/agent/").then((r) => r.data),
 
   manual: (data) =>
