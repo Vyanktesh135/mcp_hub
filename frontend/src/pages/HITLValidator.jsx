@@ -149,11 +149,11 @@ export default function HITLValidator() {
   const [saving,     setSaving]           = useState(false);
   const [error,      setError]            = useState(null);
   const [loading,    setLoading]          = useState(true);
-  const [savedApiId, setSavedApiId]       = useState(null);
   const [authMode,      setAuthMode]      = useState("same");
   const [globalAuth,    setGlobalAuth]    = useState({ ...EMPTY_CREDS });
-  const [recovering,    setRecovering]    = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [recovering,      setRecovering]      = useState(false);
+  const [confirmDiscard,  setConfirmDiscard]  = useState(false);
+  const [localTestResults, setLocalTestResults] = useState([]);
   const pollRef                           = useRef(null);
 
   /* ── polling during LLM processing ── */
@@ -165,9 +165,10 @@ export default function HITLValidator() {
       if (!PROCESSING_STATES.includes(s.state)) {
         clearInterval(pollRef.current);
         if (s.state === "SAVED") {
-          setSavedApiId(s.api_definition_id);
+          navigate(`/registry/${s.api_definition_id}`, { replace: true });
         } else {
           setForm(draftToForm(s.final_api || s.draft_api));
+          setLocalTestResults(s.api_test_results || []);
         }
       }
     }, 1800);
@@ -178,12 +179,13 @@ export default function HITLValidator() {
       .then(s => {
         setSession(s);
         if (s.state === "SAVED") {
-          setSavedApiId(s.api_definition_id);
+          navigate(`/registry/${s.api_definition_id}`, { replace: true });
         } else if (PROCESSING_STATES.includes(s.state)) {
           startPolling(sessionId);
         } else {
           const draft = s.final_api || s.draft_api;
           setForm(draftToForm(draft));
+          setLocalTestResults(s.api_test_results || []);
           if (s.auth_credentials && s.auth_credentials.type && s.auth_credentials.type !== "none") {
             setGlobalAuth({ ...EMPTY_CREDS, ...s.auth_credentials });
           } else if (draft?.auth_type && draft.auth_type !== "none") {
@@ -233,6 +235,39 @@ export default function HITLValidator() {
     });
   }
 
+  function _persistEndpointDeletion(updatedEndpoints) {
+    const clean = updatedEndpoints.map(ep => ({
+      name:         ep.name || `${ep.method} ${ep.path}`,
+      description:  ep.description,
+      method:       ep.method,
+      path:         ep.path,
+      auth_type:    ep.auth_type,
+      input_schema: paramsToSchema(ep.parameters),
+    }));
+    agentApi.patchDraft(sessionId, { endpoints: clean }).catch(() => {});
+  }
+
+  function removeEndpoint(ei) {
+    setForm(f => {
+      const removed = f.endpoints[ei];
+      const updated = f.endpoints.filter((_, idx) => idx !== ei);
+      _persistEndpointDeletion(updated);
+      if (removed) {
+        setLocalTestResults(tr => tr.filter(r => !(r.method === removed.method && r.path === removed.path)));
+      }
+      return { ...f, endpoints: updated };
+    });
+  }
+
+  function removeEndpointByMethodPath(method, path) {
+    setForm(f => {
+      const updated = f.endpoints.filter(ep => !(ep.method === method && ep.path === path));
+      _persistEndpointDeletion(updated);
+      setLocalTestResults(tr => tr.filter(r => !(r.method === method && r.path === path)));
+      return { ...f, endpoints: updated };
+    });
+  }
+
   function setEpCreds(ei, key, val) {
     setForm(f => {
       const eps = [...f.endpoints];
@@ -252,9 +287,10 @@ export default function HITLValidator() {
       const updated = await agentApi.submitHITL(sessionId, edits, authCredentials, saveAnyway);
       setSession(updated);
       if (updated.state === "SAVED") {
-        setSavedApiId(updated.api_definition_id);
+        navigate(`/registry/${updated.api_definition_id}`, { replace: true });
       } else if (updated.state === "HITL_PENDING") {
         setForm(draftToForm(updated.final_api || updated.draft_api));
+        setLocalTestResults(updated.api_test_results || []);
       }
     } catch (err) {
       setError(err.response?.data?.detail || t("Save failed."));
@@ -285,9 +321,9 @@ export default function HITLValidator() {
     setRecovering(true);
     try {
       await agentApi.discard(sessionId);
-      navigate("/doc-upload", { replace: true });
+      navigate("/create/upload", { replace: true });
     } catch {
-      navigate("/doc-upload", { replace: true });
+      navigate("/create/upload", { replace: true });
     }
   }
 
@@ -295,13 +331,12 @@ export default function HITLValidator() {
   if (loading)                                           return <PageSpinner />;
   if (error && !session)                                 return <ErrorPage message={error} t={t} />;
   if (PROCESSING_STATES.includes(session?.state))        return <ProcessingPage state={session.state} t={t} />;
-  if (savedApiId)                                        return <SuccessPanel apiId={savedApiId} session={session} t={t} />;
 
   const confidence  = session?.confidence_map || {};
   const valErrors   = session?.validation_errors || [];
   const isFailed    = session?.state === "FAILED";
   const isManual    = session?.mode === "MANUAL";
-  const testResults = session?.api_test_results || [];
+  const testResults = localTestResults;
   const hasTestIssues = session?.state === "HITL_PENDING" &&
     testResults.some(r => r.verdict === "UNREACHABLE" || r.verdict === "WARNING");
 
@@ -376,7 +411,12 @@ export default function HITLValidator() {
               </p>
             </div>
           </div>
-          <TestResultsPanel results={testResults} sessionId={sessionId} t={t} />
+          <TestResultsPanel
+            results={testResults}
+            sessionId={sessionId}
+            t={t}
+            onDeleteEndpoint={(method, path) => removeEndpointByMethodPath(method, path)}
+          />
           <div className="mt-3 flex justify-end">
             <button
               type="button"
@@ -397,7 +437,7 @@ export default function HITLValidator() {
           recovering={recovering}
           confirmDiscard={confirmDiscard}
           onRestart={handleRestart}
-          onReupload={() => navigate("/doc-upload")}
+          onReupload={() => navigate("/create/upload")}
           onDiscardRequest={() => setConfirmDiscard(true)}
           onDiscardConfirm={handleDiscard}
           onDiscardCancel={() => setConfirmDiscard(false)}
@@ -475,12 +515,14 @@ export default function HITLValidator() {
                 confidence={confidence}
                 isManual={isManual}
                 authMode={authMode}
+                totalEndpoints={form.endpoints.length}
                 t={t}
                 onChange={(k, v) => setEp(ei, k, v)}
                 onChangeCreds={(k, v) => setEpCreds(ei, k, v)}
                 onAddParam={() => addParam(ei)}
                 onChangeParam={(pi, k, v) => setParam(ei, pi, k, v)}
                 onRemoveParam={(pi) => removeParam(ei, pi)}
+                onRemoveEndpoint={() => removeEndpoint(ei)}
               />
             ))}
           </div>
@@ -587,12 +629,46 @@ function RecoveryActions({ isFailed, recovering, confirmDiscard, onRestart, onRe
 }
 
 /* ── Endpoint review block ── */
-function EndpointReview({ ep, index, confidence, isManual, authMode, t, onChange, onChangeCreds, onAddParam, onChangeParam, onRemoveParam }) {
+function EndpointReview({ ep, index, confidence, isManual, authMode, totalEndpoints, t, onChange, onChangeCreds, onAddParam, onChangeParam, onRemoveParam, onRemoveEndpoint }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isLast = totalEndpoints === 1;
+
   return (
     <div className="card p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="section-label">{t("Endpoints")} {index + 1}</span>
-        <span className="font-mono text-xs text-zinc-600">{ep.method} {ep.path}</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-zinc-600">{ep.method} {ep.path}</span>
+          {!confirmDelete ? (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              title={isLast ? t("At least one endpoint is required") : t("Delete endpoint")}
+              disabled={isLast}
+              className="text-zinc-600 hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <TrashIcon />
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 animate-fade-in">
+              <span className="text-xs text-red-400">{t("Delete?")}</span>
+              <button
+                type="button"
+                onClick={() => { setConfirmDelete(false); onRemoveEndpoint(); }}
+                className="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/35 transition-colors"
+              >
+                {t("Yes")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              >
+                {t("No")}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -903,7 +979,7 @@ function SavingSteps() {
 }
 
 /* ── Test Results panel (shown inside SuccessPanel) ── */
-function TestResultsPanel({ results, sessionId, t }) {
+function TestResultsPanel({ results, sessionId, t, onDeleteEndpoint }) {
   if (!results || results.length === 0) return null;
 
   const verdictStyle = {
@@ -939,7 +1015,14 @@ function TestResultsPanel({ results, sessionId, t }) {
         {results.map((r, i) => {
           const s = verdictStyle[r.verdict] || verdictStyle.WARNING;
           return (
-            <TestResultRow key={i} result={r} style={s} />
+            <TestResultRow
+              key={i}
+              result={r}
+              style={s}
+              onDelete={onDeleteEndpoint
+                ? () => onDeleteEndpoint(r.method, r.path)
+                : null}
+            />
           );
         })}
       </div>
@@ -947,27 +1030,64 @@ function TestResultsPanel({ results, sessionId, t }) {
   );
 }
 
-function TestResultRow({ result, style }) {
-  const [open, setOpen] = useState(false);
+function TestResultRow({ result, style, onDelete }) {
+  const [open,          setOpen]          = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   return (
     <div className="rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-900 transition-colors"
-      >
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${style.dot}`} />
-        <span className="flex-1 text-xs text-zinc-300 font-medium truncate">
-          {result.endpoint_name}
-        </span>
-        <span className="font-mono text-xs text-zinc-600">{result.method}</span>
-        <span className={`text-xs font-semibold ${style.text} flex-shrink-0`}>
-          {style.label}
-        </span>
-        {result.duration_ms && (
-          <span className="text-xs text-zinc-600 flex-shrink-0">{result.duration_ms}ms</span>
+      <div className="flex items-center">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="flex-1 flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-900 transition-colors min-w-0"
+        >
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${style.dot}`} />
+          <span className="flex-1 text-xs text-zinc-300 font-medium truncate">
+            {result.endpoint_name}
+          </span>
+          <span className="font-mono text-xs text-zinc-600">{result.method}</span>
+          <span className={`text-xs font-semibold ${style.text} flex-shrink-0`}>
+            {style.label}
+          </span>
+          {result.duration_ms && (
+            <span className="text-xs text-zinc-600 flex-shrink-0">{result.duration_ms}ms</span>
+          )}
+          <ChevronSmIcon open={open} />
+        </button>
+
+        {onDelete && (
+          <div className="flex items-center gap-1.5 px-2 flex-shrink-0">
+            {!confirmDelete ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                title="Remove endpoint"
+                className="text-zinc-700 hover:text-red-400 transition-colors p-1"
+              >
+                <TrashIcon />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1 animate-fade-in">
+                <span className="text-[10px] text-red-400">Remove?</span>
+                <button
+                  type="button"
+                  onClick={() => { setConfirmDelete(false); onDelete(); }}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/35 transition-colors"
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                >
+                  No
+                </button>
+              </div>
+            )}
+          </div>
         )}
-        <ChevronSmIcon open={open} />
-      </button>
+      </div>
 
       {open && (
         <div className="border-t border-zinc-800 px-3 py-3 space-y-2 animate-fade-in text-xs">
@@ -1172,6 +1292,9 @@ function EyeOffIcon() {
 }
 function XIcon() {
   return <svg width="12" height="12" viewBox="0 0 15 15" fill="none"><path d="M3 3l9 9M12 3l-9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+}
+function TrashIcon() {
+  return <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M5 1h5M2 3h11M4 3l.8 9.5a1 1 0 0 0 1 .5h4.4a1 1 0 0 0 1-.5L12 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 }
 function PlugIcon() {
   return <svg width="14" height="14" viewBox="0 0 15 15" fill="none"><path d="M5 1v3M10 1v3M3 7h9M4 4h7v3a3.5 3.5 0 0 1-7 0V4Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><path d="M7.5 10.5v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>;

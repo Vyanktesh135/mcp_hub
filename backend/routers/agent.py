@@ -12,7 +12,8 @@ Agent flow routes:
 import os
 import uuid
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File
+from typing import Any
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -182,6 +183,29 @@ def get_session(
 # ---------------------------------------------------------------------------
 # HITL: submit human edits
 # ---------------------------------------------------------------------------
+@router.patch("/{session_id}/draft", response_model=SessionResponse)
+def patch_draft(
+    session_id: str,
+    body: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Persist partial draft_api edits without triggering the pipeline.
+    Used by the HITL UI to immediately save endpoint deletions so they
+    survive a page refresh.
+    Only allowed while the session is in HITL_PENDING or FAILED state.
+    """
+    session = _get_session_or_404(session_id, db, user_id=current_user.id)
+    if session.state not in ("HITL_PENDING", "FAILED"):
+        raise HTTPException(400, "Session is not in an editable state")
+    session.draft_api = {**(session.draft_api or {}), **body}
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
 @router.post("/{session_id}/hitl", response_model=SessionResponse)
 async def submit_hitl(
     session_id: str,
@@ -199,7 +223,10 @@ async def submit_hitl(
         session.auth_credentials = encrypt_creds(body.auth_credentials)
         db.add(session)
         db.commit()
-    session = await orch.confirm(session, body.edits, save_anyway=body.save_anyway)
+    try:
+        session = await orch.confirm(session, body.edits, save_anyway=body.save_anyway)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return session
 
 
